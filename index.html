@@ -399,6 +399,49 @@ audio{width:100%;margin:8px 0}
   word-break:break-all;
 }
 
+
+.time-ruler{
+  width:100%;
+  height:34px;
+  background:linear-gradient(180deg,rgba(15,23,42,.98),rgba(2,6,23,.96));
+  border:1px solid rgba(255,255,255,.10);
+  border-bottom:none;
+  border-radius:18px 18px 0 0;
+  margin-top:10px;
+  position:relative;
+  overflow:hidden;
+}
+.time-ruler canvas{
+  width:100%;
+  height:34px;
+  margin:0;
+  border:none;
+  border-radius:0;
+  background:transparent;
+}
+.wave-canvas-joined{
+  margin-top:0;
+  border-radius:0 0 18px 18px;
+}
+.playhead-readout{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  margin:8px 0 2px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:900;
+  font-size:18px;
+  color:#f8fafc;
+}
+.playhead-readout span{
+  background:rgba(53,224,161,.14);
+  border:1px solid rgba(53,224,161,.35);
+  color:#35e0a1;
+  border-radius:999px;
+  padding:5px 12px;
+}
+
 .nudge-panel{
   margin:10px 0 8px;
   padding:10px;
@@ -539,7 +582,11 @@ audio{width:100%;margin:8px 0}
     </div>
   </div>
 
-  <canvas id="waveCanvas"></canvas>
+  <div class="playhead-readout">現在位置 <span id="bigTimeLabel">00:00.00</span></div>
+  <div class="time-ruler">
+    <canvas id="timeRulerCanvas"></canvas>
+  </div>
+  <canvas id="waveCanvas" class="wave-canvas-joined"></canvas>
 
   <div class="nudge-panel">
     <div class="nudge-title">
@@ -687,6 +734,9 @@ const radioValue = document.getElementById("radioValue");
 const audioEl = document.getElementById("audio");
 const canvas = document.getElementById("waveCanvas");
 const ctx = canvas.getContext("2d");
+const timeRulerCanvas = document.getElementById("timeRulerCanvas");
+const timeRulerCtx = timeRulerCanvas.getContext("2d");
+const bigTimeLabel = document.getElementById("bigTimeLabel");
 
 function ensureAudioContext(){
   if(!audioContext) audioContext = new AudioContext();
@@ -769,6 +819,8 @@ viewScroll.oninput = ()=>{
 function resizeCanvas(){
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
+  timeRulerCanvas.width = timeRulerCanvas.clientWidth * devicePixelRatio;
+  timeRulerCanvas.height = timeRulerCanvas.clientHeight * devicePixelRatio;
 }
 resizeCanvas();
 window.addEventListener("resize",()=>{resizeCanvas();invalidateWaveformCache();refreshPreview();});
@@ -1336,11 +1388,14 @@ function syncPlayheadFromAudio(){
 function updateTimeLabel(buffer){
   if(!buffer){
     timeLabel.textContent = "00:00 / 00:00";
+    bigTimeLabel.textContent = "00:00.00";
+    drawTimeRuler(null);
     return;
   }
   const total = buffer.duration || 0;
   const current = Math.min(total, total * playheadRatio);
   timeLabel.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+  bigTimeLabel.textContent = formatTimeMs(current);
 }
 
 function formatTime(sec){
@@ -1421,36 +1476,97 @@ function drawTimeGrid(buffer, w, h){
   const firstTick = Math.ceil(startSec / step) * step;
 
   ctx.save();
-
-  ctx.font = `${12 * devicePixelRatio}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-  ctx.textBaseline = "top";
   ctx.lineWidth = 1;
 
   for(let t = firstTick; t <= endSec + 0.001; t += step){
     const ratio = (t - startSec) / visibleDuration;
     const x = ratio * w;
 
-    ctx.strokeStyle = "rgba(255,255,255,.16)";
+    ctx.strokeStyle = "rgba(255,255,255,.10)";
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);
     ctx.stroke();
-
-    const label = formatTime(t);
-    const labelWidth = ctx.measureText(label).width;
-    const labelX = Math.min(w - labelWidth - 6, Math.max(4, x + 4));
-
-    ctx.fillStyle = "rgba(2,6,23,.78)";
-    ctx.fillRect(labelX - 3, 4, labelWidth + 6, 18 * devicePixelRatio);
-
-    ctx.fillStyle = "rgba(248,250,252,.88)";
-    ctx.fillText(label, labelX, 6);
   }
 
   ctx.restore();
 }
 
+function drawTimeRuler(buffer){
+  const w = timeRulerCanvas.width;
+  const h = timeRulerCanvas.height;
+
+  timeRulerCtx.clearRect(0,0,w,h);
+  timeRulerCtx.fillStyle = "rgba(2,6,23,.96)";
+  timeRulerCtx.fillRect(0,0,w,h);
+
+  if(!buffer || !buffer.duration){
+    bigTimeLabel.textContent = "00:00.00";
+    return;
+  }
+
+  const visibleStart = viewportStart;
+  const visibleEnd = getViewportEnd();
+  const startSec = buffer.duration * visibleStart;
+  const endSec = buffer.duration * visibleEnd;
+  const visibleDuration = Math.max(0.001, endSec - startSec);
+  const step = chooseGridStep(visibleDuration);
+  const firstTick = Math.ceil(startSec / step) * step;
+
+  timeRulerCtx.save();
+  timeRulerCtx.font = `${12 * devicePixelRatio}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  timeRulerCtx.textBaseline = "top";
+  timeRulerCtx.lineWidth = 1;
+
+  for(let t = firstTick; t <= endSec + 0.001; t += step){
+    const ratio = (t - startSec) / visibleDuration;
+    const x = ratio * w;
+    const label = formatTime(t);
+
+    timeRulerCtx.strokeStyle = "rgba(248,250,252,.28)";
+    timeRulerCtx.beginPath();
+    timeRulerCtx.moveTo(x, h * .48);
+    timeRulerCtx.lineTo(x, h);
+    timeRulerCtx.stroke();
+
+    const labelWidth = timeRulerCtx.measureText(label).width;
+    let labelX = x - labelWidth / 2;
+    labelX = Math.min(w - labelWidth - 4, Math.max(4, labelX));
+
+    timeRulerCtx.fillStyle = "rgba(248,250,252,.92)";
+    timeRulerCtx.fillText(label, labelX, 5 * devicePixelRatio);
+  }
+
+  const px = ((playheadRatio - visibleStart) / (visibleEnd - visibleStart)) * w;
+  if(px >= 0 && px <= w){
+    timeRulerCtx.strokeStyle = "#35e0a1";
+    timeRulerCtx.lineWidth = 2 * devicePixelRatio;
+    timeRulerCtx.beginPath();
+    timeRulerCtx.moveTo(px, 0);
+    timeRulerCtx.lineTo(px, h);
+    timeRulerCtx.stroke();
+
+    timeRulerCtx.fillStyle = "#35e0a1";
+    timeRulerCtx.beginPath();
+    timeRulerCtx.arc(px, h - 6 * devicePixelRatio, 4.5 * devicePixelRatio, 0, Math.PI * 2);
+    timeRulerCtx.fill();
+  }
+
+  timeRulerCtx.restore();
+
+  bigTimeLabel.textContent = formatTimeMs(buffer.duration * playheadRatio);
+}
+
+function formatTimeMs(sec){
+  if(!sec || !isFinite(sec)) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  const cs = Math.floor((sec % 1) * 100);
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(cs).padStart(2,"0")}`;
+}
+
 function drawWaveform(buffer){
+  drawTimeRuler(buffer);
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle="#020617";
   ctx.fillRect(0,0,canvas.width,canvas.height);
