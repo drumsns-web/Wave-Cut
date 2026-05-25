@@ -9,7 +9,139 @@
 <meta name="apple-mobile-web-app-title" content="WaveCut">
 <meta name="application-name" content="WaveCut">
 <meta name="theme-color" content="#0b1020">
-<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js">
+
+function nudgePlayhead(seconds){
+  const buffer = activeBuffer();
+  if(!buffer || !buffer.duration) return;
+
+  const currentSec = buffer.duration * playheadRatio;
+  const nextSec = Math.min(buffer.duration, Math.max(0, currentSec + seconds));
+  seekToRatio(nextSec / buffer.duration);
+
+  if(zoomLevel > 1 && (playheadRatio < viewportStart || playheadRatio > getViewportEnd())){
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+  }
+
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+}
+
+document.querySelectorAll("[data-nudge]").forEach(btn=>{
+  let holdTimer = null;
+  let repeatTimer = null;
+
+  const amount = Number(btn.dataset.nudge);
+
+  const start = (e)=>{
+    e.preventDefault();
+    nudgePlayhead(amount);
+
+    holdTimer = setTimeout(()=>{
+      repeatTimer = setInterval(()=>{
+        nudgePlayhead(amount);
+      }, 120);
+    }, 450);
+  };
+
+  const stop = ()=>{
+    if(holdTimer) clearTimeout(holdTimer);
+    if(repeatTimer) clearInterval(repeatTimer);
+    holdTimer = null;
+    repeatTimer = null;
+  };
+
+  btn.addEventListener("pointerdown", start);
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointerleave", stop);
+  btn.addEventListener("pointercancel", stop);
+});
+
+// PC keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+  const isTyping =
+    tag === "input" ||
+    tag === "select" ||
+    tag === "textarea" ||
+    e.target?.isContentEditable;
+
+  if(isTyping) return;
+  if(!activeBuffer()) return;
+
+  const key = e.key.toLowerCase();
+
+  if(key === " "){
+    e.preventDefault();
+    if(audioEl.paused){
+      audioEl.play().catch(()=>{});
+    }else{
+      audioEl.pause();
+    }
+    return;
+  }
+
+  if(key === "a"){
+    e.preventDefault();
+    setStartBtn.click();
+    return;
+  }
+
+  if(key === "b"){
+    e.preventDefault();
+    setEndBtn.click();
+    return;
+  }
+
+  if(key === "c"){
+    e.preventDefault();
+    if(!cutBtn.disabled) cutBtn.click();
+    return;
+  }
+
+  if(key === "t"){
+    e.preventDefault();
+    if(!trimBtn.disabled) trimBtn.click();
+    return;
+  }
+
+  if(e.key === "ArrowLeft" || e.key === "ArrowRight"){
+    e.preventDefault();
+    const stepSec = e.shiftKey ? 30 : 5;
+    const direction = e.key === "ArrowRight" ? 1 : -1;
+    nudgePlayhead(direction * stepSec);
+    return;
+  }
+
+  if(e.key === "," || e.key === "."){
+    e.preventDefault();
+    const direction = e.key === "." ? 1 : -1;
+    const stepSec = e.shiftKey ? 0.01 : 0.1;
+    nudgePlayhead(direction * stepSec);
+    return;
+  }
+
+  if(key === "home"){
+    e.preventDefault();
+    seekToRatio(0);
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+    drawWaveform(activeBuffer());
+    return;
+  }
+
+  if(key === "end"){
+    e.preventDefault();
+    seekToRatio(1);
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+    drawWaveform(activeBuffer());
+    return;
+  }
+});
+
+</script>
 <style>
 :root{
   --bg:#070b14;
@@ -267,6 +399,48 @@ audio{width:100%;margin:8px 0}
   word-break:break-all;
 }
 
+.nudge-panel{
+  margin:10px 0 8px;
+  padding:10px;
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+}
+.nudge-title{
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:8px;
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+}
+.nudge-title strong{
+  color:#f8fafc;
+}
+.nudge-grid{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:6px;
+}
+.nudge-btn{
+  padding:11px 4px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;
+  border-radius:12px;
+}
+.nudge-btn.minus{
+  color:#fecaca;
+  border-color:rgba(248,113,113,.45);
+}
+.nudge-btn.plus{
+  color:#bbf7d0;
+  border-color:rgba(74,222,128,.45);
+}
+.nudge-btn.tiny{
+  font-size:11px;
+}
+
+
 .pill{
   display:inline-block;
   padding:5px 9px;
@@ -366,15 +540,36 @@ audio{width:100%;margin:8px 0}
   </div>
 
   <canvas id="waveCanvas"></canvas>
+
+  <div class="nudge-panel">
+    <div class="nudge-title">
+      <strong>現在位置の微調整</strong>
+      <span>細かく前後移動</span>
+    </div>
+    <div class="nudge-grid">
+      <button class="nudge-btn minus" data-nudge="-5">-5s</button>
+      <button class="nudge-btn minus" data-nudge="-1">-1s</button>
+      <button class="nudge-btn minus tiny" data-nudge="-0.1">-0.1s</button>
+      <button class="nudge-btn minus tiny" data-nudge="-0.01">-0.01s</button>
+      <button class="nudge-btn plus tiny" data-nudge="0.01">+0.01s</button>
+      <button class="nudge-btn plus tiny" data-nudge="0.1">+0.1s</button>
+      <button class="nudge-btn plus" data-nudge="1">+1s</button>
+      <button class="nudge-btn plus" data-nudge="5">+5s</button>
+    </div>
+  </div>
+
   <div class="row">
-    <button id="setStartBtn" disabled>現在位置を開始点</button>
-    <button id="setEndBtn" disabled>現在位置を終了点</button>
+    <button id="setStartBtn" disabled>A：現在位置を開始点</button>
+    <button id="setEndBtn" disabled>B：現在位置を終了点</button>
   </div>
   <div class="row">
     <button id="cutBtn" disabled>選択範囲をカット</button>
     <button id="trimBtn" disabled>選択範囲だけ残す</button>
   </div>
-  <p class="small">波形をタップするとその位置へ移動。ドラッグで範囲選択。再生ライン位置を開始点/終了点にもできます。</p>
+  <p class="small">
+    波形をタップするとその位置へ移動。ドラッグで範囲選択。再生ライン位置を開始点/終了点にもできます。<br>
+    PCショートカット：Space 再生/停止 ｜ A 開始点 ｜ B 終了点 ｜ ←/→ 5秒移動 ｜ Shift+←/→ 30秒移動 ｜ ,/. 0.1秒微調整 ｜ Shift+,/. 0.01秒微調整 ｜ C カット ｜ T トリム
+  </p>
 </section>
 
 <section class="card">
@@ -1533,6 +1728,138 @@ function downloadBlob(blob,filename){
   a.click();
   URL.revokeObjectURL(url);
 }
+
+
+function nudgePlayhead(seconds){
+  const buffer = activeBuffer();
+  if(!buffer || !buffer.duration) return;
+
+  const currentSec = buffer.duration * playheadRatio;
+  const nextSec = Math.min(buffer.duration, Math.max(0, currentSec + seconds));
+  seekToRatio(nextSec / buffer.duration);
+
+  if(zoomLevel > 1 && (playheadRatio < viewportStart || playheadRatio > getViewportEnd())){
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+  }
+
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+}
+
+document.querySelectorAll("[data-nudge]").forEach(btn=>{
+  let holdTimer = null;
+  let repeatTimer = null;
+
+  const amount = Number(btn.dataset.nudge);
+
+  const start = (e)=>{
+    e.preventDefault();
+    nudgePlayhead(amount);
+
+    holdTimer = setTimeout(()=>{
+      repeatTimer = setInterval(()=>{
+        nudgePlayhead(amount);
+      }, 120);
+    }, 450);
+  };
+
+  const stop = ()=>{
+    if(holdTimer) clearTimeout(holdTimer);
+    if(repeatTimer) clearInterval(repeatTimer);
+    holdTimer = null;
+    repeatTimer = null;
+  };
+
+  btn.addEventListener("pointerdown", start);
+  btn.addEventListener("pointerup", stop);
+  btn.addEventListener("pointerleave", stop);
+  btn.addEventListener("pointercancel", stop);
+});
+
+// PC keyboard shortcuts
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
+  const isTyping =
+    tag === "input" ||
+    tag === "select" ||
+    tag === "textarea" ||
+    e.target?.isContentEditable;
+
+  if(isTyping) return;
+  if(!activeBuffer()) return;
+
+  const key = e.key.toLowerCase();
+
+  if(key === " "){
+    e.preventDefault();
+    if(audioEl.paused){
+      audioEl.play().catch(()=>{});
+    }else{
+      audioEl.pause();
+    }
+    return;
+  }
+
+  if(key === "a"){
+    e.preventDefault();
+    setStartBtn.click();
+    return;
+  }
+
+  if(key === "b"){
+    e.preventDefault();
+    setEndBtn.click();
+    return;
+  }
+
+  if(key === "c"){
+    e.preventDefault();
+    if(!cutBtn.disabled) cutBtn.click();
+    return;
+  }
+
+  if(key === "t"){
+    e.preventDefault();
+    if(!trimBtn.disabled) trimBtn.click();
+    return;
+  }
+
+  if(e.key === "ArrowLeft" || e.key === "ArrowRight"){
+    e.preventDefault();
+    const stepSec = e.shiftKey ? 30 : 5;
+    const direction = e.key === "ArrowRight" ? 1 : -1;
+    nudgePlayhead(direction * stepSec);
+    return;
+  }
+
+  if(e.key === "," || e.key === "."){
+    e.preventDefault();
+    const direction = e.key === "." ? 1 : -1;
+    const stepSec = e.shiftKey ? 0.01 : 0.1;
+    nudgePlayhead(direction * stepSec);
+    return;
+  }
+
+  if(key === "home"){
+    e.preventDefault();
+    seekToRatio(0);
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+    drawWaveform(activeBuffer());
+    return;
+  }
+
+  if(key === "end"){
+    e.preventDefault();
+    seekToRatio(1);
+    centerViewportOnPlayhead();
+    invalidateWaveformCache();
+    drawWaveform(activeBuffer());
+    return;
+  }
+});
+
 </script>
 </body>
 </html>
