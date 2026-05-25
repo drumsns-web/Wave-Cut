@@ -711,20 +711,30 @@ function updateSourceStatus(){
 function setFileStatus(file, targetText, decoded){
   const isVideo = file.type.startsWith("video/");
   const isAudio = file.type.startsWith("audio/");
-  const mediaText = isVideo ? "動画ファイル" : isAudio ? "音声ファイル" : "読み込みファイル";
+  const mediaText = isVideo ? "🎬 動画ファイル" : isAudio ? "🎵 音声ファイル" : "📁 読み込みファイル";
   const originalType = file.type || "不明";
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
-  const extractText = isVideo
-    ? "動画から音声だけを抽出して波形化しました"
-    : "音声を波形化しました";
+
+  let conversionMessage = "";
+
+  if(isVideo){
+    conversionMessage =
+      `✅ 音声抽出完了<br>` +
+      `✅ 動画部分は除外済み<br>` +
+      `現在は「音声のみ」を編集中`;
+  }else{
+    conversionMessage =
+      `✅ 音声を波形化しました<br>` +
+      `現在は音声のみを編集中`;
+  }
 
   fileStatus.innerHTML =
-    `${mediaText}：${file.name}<br>` +
-    `読み込み先：${targetText}<br>` +
-    `${extractText}<br>` +
+    `${mediaText}：${file.name}<br><br>` +
+    `読み込み先：${targetText}<br><br>` +
+    `${conversionMessage}<br><br>` +
     `元ファイル形式：${originalType} / 拡張子 .${ext}<br>` +
-    `編集内部形式：${internalType}<br>` +
+    `現在の編集形式：${internalType}<br>` +
     `長さ：${formatTime(decoded.duration)}`;
 }
 
