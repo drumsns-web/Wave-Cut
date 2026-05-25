@@ -573,13 +573,14 @@ audio{width:100%;margin:8px 0}
 
   <label>ファイル読み込み（音声・動画対応）</label>
   <div class="file-row">
-    <input id="fileInput" class="file-hidden" type="file" />
+    <input id="fileInput" class="file-hidden" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.webm,.mp4,.mov,.m4v,.avi,.mkv" />
     <label for="fileInput" class="file-button">ファイルを選択</label>
     <div id="selectedFileName" class="file-name">選択されていません</div>
   </div>
   <div id="fileStatus" class="info">ファイル未選択</div>
 
   <audio id="audio" controls></audio>
+  <video id="mediaProbe" playsinline muted style="display:none"></video>
 
   <div class="row">
     <button id="deleteMainBtn" disabled class="red">メイン音源を削除</button>
@@ -764,6 +765,7 @@ const doubleValue = document.getElementById("doubleValue");
 const radioValue = document.getElementById("radioValue");
 
 const audioEl = document.getElementById("audio");
+const mediaProbe = document.getElementById("mediaProbe");
 const canvas = document.getElementById("waveCanvas");
 const ctx = canvas.getContext("2d");
 const timeRulerCanvas = document.getElementById("timeRulerCanvas");
@@ -996,23 +998,74 @@ stopBtn.onclick=()=>{
 };
 
 
+
 async function decodeFileToAudioBuffer(file){
   ensureAudioContext();
+
+  // ClipLoop方式を参考に、まずブラウザのメディア要素で読めるか確認する。
+  // MOV/MP4はdecodeAudioDataよりvideo/audio要素の方が読めるケースがある。
+  const mediaInfo = await probeMediaFile(file);
 
   // まず通常の高速デコードを試す。MP3/WAV/M4A/一部MP4はここで通る。
   try{
     const arrayBuffer = await file.arrayBuffer();
-    return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    decoded._wavecutLoadMethod = "direct";
+    decoded._wavecutMediaDuration = mediaInfo.duration;
+    return decoded;
   }catch(primaryError){
-    console.warn("Direct decode failed. Trying media element fallback.", primaryError);
+    console.warn("Direct decode failed. Trying media element capture fallback.", primaryError);
   }
 
-  // MOV/MP4など、コンテナごとdecodeAudioDataできない場合の代替。
-  // ブラウザのvideo/audio再生機能で読み込み、Web Audio経由で音声だけを実時間抽出する。
-  return await extractAudioViaMediaElement(file);
+  // decodeAudioDataに失敗しても、media要素で再生できる場合は、再生音をWeb Audio経由で録音してAudioBuffer化する。
+  const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
+  captured._wavecutLoadMethod = "media-capture";
+  captured._wavecutMediaDuration = mediaInfo.duration;
+  return captured;
 }
 
-function extractAudioViaMediaElement(file){
+function probeMediaFile(file){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const isAudio = file.type.startsWith("audio/");
+    const el = document.createElement(isAudio ? "audio" : "video");
+    el.preload = "metadata";
+    el.playsInline = true;
+    el.muted = true;
+    el.src = url;
+    el.style.display = "none";
+    document.body.appendChild(el);
+
+    const cleanup = ()=>{
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      try{ el.remove(); }catch(e){}
+    };
+
+    const timer = setTimeout(()=>{
+      cleanup();
+      reject(new Error("media metadata timeout"));
+    }, 12000);
+
+    el.onloadedmetadata = ()=>{
+      clearTimeout(timer);
+      const duration = el.duration;
+      cleanup();
+      if(duration && isFinite(duration)){
+        resolve({duration});
+      }else{
+        reject(new Error("media duration unavailable"));
+      }
+    };
+
+    el.onerror = ()=>{
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("media element cannot read this file"));
+    };
+  });
+}
+
+function extractAudioViaPlayableMedia(file, mediaInfo){
   return new Promise(async (resolve, reject)=>{
     ensureAudioContext();
 
@@ -1022,13 +1075,16 @@ function extractAudioViaMediaElement(file){
       }
 
       const url = URL.createObjectURL(file);
-      const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
+      const isAudio = file.type.startsWith("audio/");
+      const media = document.createElement(isAudio ? "audio" : "video");
       media.src = url;
-      media.crossOrigin = "anonymous";
       media.preload = "auto";
-      media.muted = false;
       media.playsInline = true;
-      media.style.display = "none";
+      media.muted = false;
+      media.style.position = "fixed";
+      media.style.left = "-9999px";
+      media.style.width = "1px";
+      media.style.height = "1px";
       document.body.appendChild(media);
 
       const cleanup = ()=>{
@@ -1043,7 +1099,7 @@ function extractAudioViaMediaElement(file){
       };
 
       media.onloadedmetadata = async ()=>{
-        const duration = media.duration;
+        const duration = media.duration || mediaInfo?.duration;
 
         if(!duration || !isFinite(duration)){
           cleanup();
@@ -1051,17 +1107,24 @@ function extractAudioViaMediaElement(file){
           return;
         }
 
-        const sampleRate = audioContext.sampleRate;
+        fileStatus.innerHTML =
+          `MOV/MP4をブラウザ再生方式で読み込みました。<br>` +
+          `音声だけを抽出中...<br>` +
+          `長さ：${formatTime(duration)}<br>` +
+          `※この方式では動画の長さに近い時間がかかる場合があります。`;
+
         const channels = 2;
         const chunks = [[], []];
-        let recordedSamples = 0;
 
-        fileStatus.innerHTML =
-          `通常デコードに失敗したため、代替方式で音声抽出中...<br>` +
-          `この方式では動画の長さに近い時間がかかる場合があります。<br>` +
-          `長さ：${formatTime(duration)}`;
+        let source;
+        try{
+          source = audioContext.createMediaElementSource(media);
+        }catch(e){
+          cleanup();
+          reject(e);
+          return;
+        }
 
-        const source = audioContext.createMediaElementSource(media);
         const processor = audioContext.createScriptProcessor(4096, channels, channels);
         const zeroGain = audioContext.createGain();
         zeroGain.gain.value = 0;
@@ -1072,7 +1135,6 @@ function extractAudioViaMediaElement(file){
 
         processor.onaudioprocess = (event)=>{
           const input = event.inputBuffer;
-          const len = input.length;
 
           for(let ch=0; ch<channels; ch++){
             const sourceCh = Math.min(ch, input.numberOfChannels - 1);
@@ -1080,13 +1142,11 @@ function extractAudioViaMediaElement(file){
             chunks[ch].push(new Float32Array(data));
           }
 
-          recordedSamples += len;
-
           if(media.duration && isFinite(media.duration)){
             const pct = Math.min(100, Math.round((media.currentTime / media.duration) * 100));
             fileStatus.innerHTML =
-              `代替方式で音声抽出中... ${pct}%<br>` +
-              `動画部分は使わず、音声のみを取り出しています。<br>` +
+              `MOV/MP4をブラウザ再生方式で読み込み中... ${pct}%<br>` +
+              `動画部分は使わず、音声のみを抽出しています。<br>` +
               `${formatTime(media.currentTime)} / ${formatTime(media.duration)}`;
           }
         };
@@ -1106,7 +1166,7 @@ function extractAudioViaMediaElement(file){
             return;
           }
 
-          const buffer = audioContext.createBuffer(channels, totalLength, sampleRate);
+          const buffer = audioContext.createBuffer(channels, totalLength, audioContext.sampleRate);
 
           for(let ch=0; ch<channels; ch++){
             const out = buffer.getChannelData(ch);
@@ -1190,7 +1250,7 @@ fileInput.onchange = async(e)=>{
 
   }catch(err){
     fileStatus.classList.remove("extracting");
-    alert("このファイルから音声を読み込めませんでした。端末やブラウザが対応していない形式、またはiPhoneの制限で自動抽出できない可能性があります。MOV / MP4の場合は、もう一度選択するか、写真アプリ等でMP4/H.264/AAC形式に書き出して試してください。");
+    alert("このファイルから音声を読み込めませんでした。ブラウザで再生できるMOV/MP4なら読み込める可能性がありますが、端末やSafariの制限で抽出できない場合があります。別形式に書き出すか、短いファイルで試してください。");
     console.error(err);
   }
 
@@ -1240,6 +1300,9 @@ function setFileStatus(file, targetText, decoded){
   const originalType = file.type || "不明";
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
+  const methodText = decoded._wavecutLoadMethod === "media-capture"
+    ? "読み込み方式：ブラウザ再生経由で音声抽出"
+    : "読み込み方式：直接デコード";
 
   let conversionMessage = "";
 
@@ -1264,6 +1327,7 @@ function setFileStatus(file, targetText, decoded){
     `${conversionMessage}<br><br>` +
     `元ファイル形式：${originalType} / 拡張子 .${ext}<br>` +
     `現在の編集形式：${internalType}<br>` +
+    `${methodText}<br>` +
     `今回読み込んだ長さ：${formatTime(decoded.duration)}<br>` +
     `現在のタイムライン全体：${mainBuffer ? formatTime(mainBuffer.duration) : formatTime(decoded.duration)}`;
 }
