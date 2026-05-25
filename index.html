@@ -243,6 +243,8 @@ let recordedChunks = [];
 let mainBuffer = null;
 let takeBuffer = null;
 let activeBufferType = "main";
+let mainFxBaked = false;
+let takeFxBaked = false;
 let selectedStart = null;
 let selectedEnd = null;
 let currentStream = null;
@@ -292,6 +294,19 @@ function activeBuffer(){
 function setActiveBuffer(buffer){
   if(activeBufferType === "take") takeBuffer = buffer;
   else mainBuffer = buffer;
+}
+
+function isActiveFxBaked(){
+  return activeBufferType === "take" ? takeFxBaked : mainFxBaked;
+}
+
+function setActiveFxBaked(value){
+  if(activeBufferType === "take") takeFxBaked = value;
+  else mainFxBaked = value;
+}
+
+function clearActiveFxBaked(){
+  setActiveFxBaked(false);
 }
 
 function resizeCanvas(){
@@ -357,9 +372,11 @@ recordBtn.onclick = async()=>{
 
     if(recordTarget.value === "take"){
       takeBuffer = decoded;
+      takeFxBaked = false;
       activeBufferType = "take";
     }else{
       mainBuffer = decoded;
+      mainFxBaked = false;
       activeBufferType = "main";
     }
 
@@ -390,6 +407,7 @@ fileInput.onchange = async(e)=>{
   ensureAudioContext();
   const arrayBuffer = await file.arrayBuffer();
   mainBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  mainFxBaked = false;
   activeBufferType = "main";
   resetFx();
   selectedStart = null;
@@ -427,6 +445,7 @@ function updateFxLabels(){
 
 [gainSlider,reverbSlider,delaySlider,doubleSlider,radioSlider].forEach(slider=>{
   slider.oninput=()=>{
+    clearActiveFxBaked();
     updateFxLabels();
     refreshPreview();
   };
@@ -439,7 +458,7 @@ async function refreshPreview(){
     drawWaveform(null);
     return;
   }
-  const processed = await processEffects(buffer);
+  const processed = isActiveFxBaked() ? cloneBuffer(buffer) : await processEffects(buffer);
   updateAudioElement(processed);
   drawWaveform(processed);
 }
@@ -589,9 +608,13 @@ function cloneBuffer(buffer){
 applyFxBtn.onclick = async()=>{
   const buffer = activeBuffer();
   if(!buffer) return;
+  if(isActiveFxBaked()){
+    alert("この音源にはすでに現在のエフェクトが反映されています。二重がけを防ぐため、もう一度反映する場合はスライダーを変更してから操作してください。");
+    return;
+  }
   const processed = await processEffects(buffer);
   setActiveBuffer(processed);
-  resetFx();
+  setActiveFxBaked(true);
   refreshPreview();
   updateButtons();
 };
@@ -602,6 +625,8 @@ selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selected
 prependTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = concatBuffers(takeBuffer, mainBuffer);
+  mainFxBaked = false;
+  takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
   resetFx();
@@ -612,6 +637,8 @@ prependTakeBtn.onclick=()=>{
 appendTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = concatBuffers(mainBuffer, takeBuffer);
+  mainFxBaked = false;
+  takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
   resetFx();
@@ -622,6 +649,8 @@ appendTakeBtn.onclick=()=>{
 mixTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = mixBuffers(mainBuffer, takeBuffer);
+  mainFxBaked = false;
+  takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
   resetFx();
@@ -774,14 +803,14 @@ function mixBuffers(a,b){
 saveWavBtn.onclick=async()=>{
   if(!mainBuffer) return;
   activeBufferType="main";
-  const buffer = await processEffects(mainBuffer);
+  const buffer = mainFxBaked ? cloneBuffer(mainBuffer) : await processEffects(mainBuffer);
   downloadBlob(audioBufferToWavBlob(buffer),"wavecut.wav");
 };
 
 saveMp3Btn.onclick=async()=>{
   if(!mainBuffer) return;
   activeBufferType="main";
-  const buffer = await processEffects(mainBuffer);
+  const buffer = mainFxBaked ? cloneBuffer(mainBuffer) : await processEffects(mainBuffer);
   downloadBlob(audioBufferToMp3Blob(buffer),"wavecut.mp3");
 };
 
