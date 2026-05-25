@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WaveCut</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<meta name="apple-mobile-web-app-title" content="WaveCut">
+<meta name="application-name" content="WaveCut">
+<meta name="theme-color" content="#111111">
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<style>
+body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#fff}
+header{padding:16px;text-align:center;font-size:20px;font-weight:bold;background:#181818}
+main{padding:14px;max-width:760px;margin:auto}
+button,select,input{width:100%;box-sizing:border-box;padding:13px;margin:6px 0;border:none;border-radius:10px;font-size:16px}
+button{font-weight:bold;background:#333;color:#fff}
+button.primary{background:#2563eb}
+button.green{background:#15803d}
+button.danger{background:#b00020}
+button:disabled{opacity:.4}
+canvas{width:100%;height:180px;background:#050505;border-radius:12px;margin:14px 0;touch-action:none}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label{display:block;margin-top:10px;font-size:14px;color:#ccc}
+audio{width:100%;margin:12px 0}
+.info{font-size:13px;color:#bbb;line-height:1.6}
+.value{font-size:14px;color:#ddd}
+</style>
+</head>
+<body>
+
+<header>WaveCut</header>
+
+<main>
+  <label>入力マイク</label>
+  <select id="micSelect"></select>
+  <button id="refreshMicBtn">マイク一覧を更新</button>
+
+  <label>録音チャンネル</label>
+  <select id="channelSelect">
+    <option value="1">モノラル</option>
+    <option value="2" selected>ステレオ</option>
+  </select>
+
+  <div class="row">
+    <button id="recordBtn" class="primary">録音開始</button>
+    <button id="stopBtn" disabled>録音停止</button>
+  </div>
+
+  <label>Gain：<span id="gainValue">0 dB</span></label>
+  <input id="gainSlider" type="range" min="-24" max="24" step="0.5" value="0">
+
+  <canvas id="waveCanvas"></canvas>
+
+  <audio id="audio" controls></audio>
+
+  <div class="row">
+    <button id="cutBtn" disabled>選択範囲をカット</button>
+    <button id="trimBtn" disabled>選択範囲だけ残す</button>
+  </div>
+
+  <div class="row">
+    <button id="saveWavBtn" disabled class="green">WAV保存</button>
+    <button id="saveMp3Btn" disabled class="green">MP3保存</button>
+  </div>
+
+  <p class="info">
+    波形上をドラッグして範囲選択できます。<br>
+    MV88+を使う場合は、先にスマホへ接続してからこのページを開いてください。<br>
+    iPhoneではGitHub Pages / NetlifyなどHTTPS環境で使ってください。
+  </p>
+</main>
+
+<script>
+let audioContext;
+let mediaRecorder;
+let recordedChunks = [];
+let audioBuffer = null;
+let selectedStart = null;
+let selectedEnd = null;
+let currentStream = null;
+
+const micSelect = document.getElementById("micSelect");
+const refreshMicBtn = document.getElementById("refreshMicBtn");
+const channelSelect = document.getElementById("channelSelect");
+const recordBtn = document.getElementById("recordBtn");
+const stopBtn = document.getElementById("stopBtn");
+const cutBtn = document.getElementById("cutBtn");
+const trimBtn = document.getElementById("trimBtn");
+const saveWavBtn = document.getElementById("saveWavBtn");
+const saveMp3Btn = document.getElementById("saveMp3Btn");
+const gainSlider = document.getElementById("gainSlider");
+const gainValue = document.getElementById("gainValue");
+const audioEl = document.getElementById("audio");
+const canvas = document.getElementById("waveCanvas");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas(){
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+}
+resizeCanvas();
+window.addEventListener("resize",()=>{resizeCanvas();drawWaveform();});
+
+async function loadMics(){
+  try{
+    await navigator.mediaDevices.getUserMedia({audio:true});
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter(d=>d.kind==="audioinput");
+
+    micSelect.innerHTML = "";
+
+    inputs.forEach((device,index)=>{
+      const opt = document.createElement("option");
+      opt.value = device.deviceId;
+      opt.textContent = device.label || `マイク ${index + 1}`;
+      micSelect.appendChild(opt);
+    });
+  }catch(e){
+    alert("マイク権限が必要です: " + e.message);
+  }
+}
+
+refreshMicBtn.onclick = loadMics;
+window.addEventListener("load", loadMics);
+
+recordBtn.onclick = async()=>{
+  recordedChunks=[];
+  selectedStart=null;
+  selectedEnd=null;
+
+  audioContext = new AudioContext();
+
+  const channelCount = Number(channelSelect.value);
+  const deviceId = micSelect.value;
+
+  const constraints = {
+    audio:{
+      deviceId: deviceId ? {exact: deviceId} : undefined,
+      channelCount: channelCount,
+      echoCancellation:false,
+      noiseSuppression:false,
+      autoGainControl:false
+    }
+  };
+
+  currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+  mediaRecorder = new MediaRecorder(currentStream);
+
+  mediaRecorder.ondataavailable = e=>{
+    if(e.data.size>0) recordedChunks.push(e.data);
+  };
+
+  mediaRecorder.onstop = async()=>{
+    const blob = new Blob(recordedChunks,{type:mediaRecorder.mimeType});
+    const arrayBuffer = await blob.arrayBuffer();
+    audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    applyGainFromSlider();
+    enableEditing();
+
+    currentStream.getTracks().forEach(t=>t.stop());
+  };
+
+  mediaRecorder.start();
+
+  recordBtn.disabled=true;
+  stopBtn.disabled=false;
+  recordBtn.textContent="録音中...";
+  recordBtn.classList.add("danger");
+};
+
+stopBtn.onclick=()=>{
+  mediaRecorder.stop();
+  recordBtn.disabled=false;
+  stopBtn.disabled=true;
+  recordBtn.textContent="録音開始";
+  recordBtn.classList.remove("danger");
+};
+
+gainSlider.oninput=()=>{
+  gainValue.textContent = `${gainSlider.value} dB`;
+  if(audioBuffer){
+    applyGainFromSlider();
+  }
+};
+
+function enableEditing(){
+  cutBtn.disabled=false;
+  trimBtn.disabled=false;
+  saveWavBtn.disabled=false;
+  saveMp3Btn.disabled=false;
+}
+
+function applyGainFromSlider(){
+  const db = Number(gainSlider.value);
+  const gain = Math.pow(10, db / 20);
+
+  const processed = audioContext.createBuffer(
+    audioBuffer.numberOfChannels,
+    audioBuffer.length,
+    audioBuffer.sampleRate
+  );
+
+  for(let ch=0; ch<audioBuffer.numberOfChannels; ch++){
+    const input = audioBuffer.getChannelData(ch);
+    const output = processed.getChannelData(ch);
+    for(let i=0; i<input.length; i++){
+      output[i] = Math.max(-1, Math.min(1, input[i] * gain));
+    }
+  }
+
+  updateAudioElement(processed);
+  drawWaveform(processed);
+}
+
+function getCurrentProcessedBuffer(){
+  if(!audioBuffer) return null;
+
+  const db = Number(gainSlider.value);
+  const gain = Math.pow(10, db / 20);
+
+  const processed = audioContext.createBuffer(
+    audioBuffer.numberOfChannels,
+    audioBuffer.length,
+    audioBuffer.sampleRate
+  );
+
+  for(let ch=0; ch<audioBuffer.numberOfChannels; ch++){
+    const input = audioBuffer.getChannelData(ch);
+    const output = processed.getChannelData(ch);
+    for(let i=0; i<input.length; i++){
+      output[i] = Math.max(-1, Math.min(1, input[i] * gain));
+    }
+  }
+
+  return processed;
+}
+
+function updateAudioElement(buffer){
+  const wavBlob = audioBufferToWavBlob(buffer);
+  audioEl.src = URL.createObjectURL(wavBlob);
+}
+
+function drawWaveform(buffer = audioBuffer){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle="#050505";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  if(!buffer) return;
+
+  const data = buffer.getChannelData(0);
+  const width = canvas.width;
+  const height = canvas.height;
+  const step = Math.ceil(data.length / width);
+  const amp = height / 2;
+
+  ctx.strokeStyle="#4ade80";
+  ctx.lineWidth=1;
+  ctx.beginPath();
+
+  for(let i=0;i<width;i++){
+    let min=1,max=-1;
+    for(let j=0;j<step;j++){
+      const datum=data[(i*step)+j];
+      if(datum<min) min=datum;
+      if(datum>max) max=datum;
+    }
+    ctx.moveTo(i,(1+min)*amp);
+    ctx.lineTo(i,(1+max)*amp);
+  }
+
+  ctx.stroke();
+
+  if(selectedStart!==null && selectedEnd!==null){
+    const x1=Math.min(selectedStart,selectedEnd)*width;
+    const x2=Math.max(selectedStart,selectedEnd)*width;
+    ctx.fillStyle="rgba(59,130,246,.35)";
+    ctx.fillRect(x1,0,x2-x1,height);
+  }
+}
+
+let isDragging=false;
+
+canvas.addEventListener("pointerdown",e=>{
+  if(!audioBuffer) return;
+  isDragging=true;
+  selectedStart=getCanvasRatio(e);
+  selectedEnd=selectedStart;
+  drawWaveform(getCurrentProcessedBuffer());
+});
+
+canvas.addEventListener("pointermove",e=>{
+  if(!isDragging || !audioBuffer) return;
+  selectedEnd=getCanvasRatio(e);
+  drawWaveform(getCurrentProcessedBuffer());
+});
+
+canvas.addEventListener("pointerup",()=>{
+  isDragging=false;
+});
+
+function getCanvasRatio(e){
+  const rect=canvas.getBoundingClientRect();
+  return Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
+}
+
+cutBtn.onclick=()=>{
+  if(!hasSelection()) return;
+
+  const start=Math.min(selectedStart,selectedEnd);
+  const end=Math.max(selectedStart,selectedEnd);
+
+  audioBuffer=cutAudioBuffer(audioBuffer,start,end);
+  selectedStart=null;
+  selectedEnd=null;
+
+  applyGainFromSlider();
+};
+
+trimBtn.onclick=()=>{
+  if(!hasSelection()) return;
+
+  const start=Math.min(selectedStart,selectedEnd);
+  const end=Math.max(selectedStart,selectedEnd);
+
+  audioBuffer=trimAudioBuffer(audioBuffer,start,end);
+  selectedStart=null;
+  selectedEnd=null;
+
+  applyGainFromSlider();
+};
+
+function hasSelection(){
+  return audioBuffer && selectedStart!==null && selectedEnd!==null && Math.abs(selectedEnd-selectedStart)>0.005;
+}
+
+function cutAudioBuffer(buffer,startRatio,endRatio){
+  const sampleRate=buffer.sampleRate;
+  const startSample=Math.floor(buffer.length*startRatio);
+  const endSample=Math.floor(buffer.length*endRatio);
+  const newLength=buffer.length-(endSample-startSample);
+
+  const newBuffer=audioContext.createBuffer(buffer.numberOfChannels,newLength,sampleRate);
+
+  for(let ch=0;ch<buffer.numberOfChannels;ch++){
+    const oldData=buffer.getChannelData(ch);
+    const newData=newBuffer.getChannelData(ch);
+    newData.set(oldData.slice(0,startSample),0);
+    newData.set(oldData.slice(endSample),startSample);
+  }
+
+  return newBuffer;
+}
+
+function trimAudioBuffer(buffer,startRatio,endRatio){
+  const sampleRate=buffer.sampleRate;
+  const startSample=Math.floor(buffer.length*startRatio);
+  const endSample=Math.floor(buffer.length*endRatio);
+  const newLength=endSample-startSample;
+
+  const newBuffer=audioContext.createBuffer(buffer.numberOfChannels,newLength,sampleRate);
+
+  for(let ch=0;ch<buffer.numberOfChannels;ch++){
+    const oldData=buffer.getChannelData(ch);
+    const newData=newBuffer.getChannelData(ch);
+    newData.set(oldData.slice(startSample,endSample));
+  }
+
+  return newBuffer;
+}
+
+saveWavBtn.onclick=()=>{
+  const buffer = getCurrentProcessedBuffer();
+  const blob=audioBufferToWavBlob(buffer);
+  downloadBlob(blob,"recording.wav");
+};
+
+saveMp3Btn.onclick=()=>{
+  const buffer = getCurrentProcessedBuffer();
+  const blob=audioBufferToMp3Blob(buffer);
+  downloadBlob(blob,"recording.mp3");
+};
+
+function audioBufferToWavBlob(buffer){
+  const numChannels=buffer.numberOfChannels;
+  const sampleRate=buffer.sampleRate;
+  const length=buffer.length*numChannels*2;
+  const arrayBuffer=new ArrayBuffer(44+length);
+  const view=new DataView(arrayBuffer);
+
+  writeString(view,0,"RIFF");
+  view.setUint32(4,36+length,true);
+  writeString(view,8,"WAVE");
+  writeString(view,12,"fmt ");
+  view.setUint32(16,16,true);
+  view.setUint16(20,1,true);
+  view.setUint16(22,numChannels,true);
+  view.setUint32(24,sampleRate,true);
+  view.setUint32(28,sampleRate*numChannels*2,true);
+  view.setUint16(32,numChannels*2,true);
+  view.setUint16(34,16,true);
+  writeString(view,36,"data");
+  view.setUint32(40,length,true);
+
+  let offset=44;
+  const channels=[];
+
+  for(let i=0;i<numChannels;i++){
+    channels.push(buffer.getChannelData(i));
+  }
+
+  for(let i=0;i<buffer.length;i++){
+    for(let ch=0;ch<numChannels;ch++){
+      let sample=channels[ch][i];
+      sample=Math.max(-1,Math.min(1,sample));
+      view.setInt16(offset,sample<0?sample*0x8000:sample*0x7FFF,true);
+      offset+=2;
+    }
+  }
+
+  return new Blob([arrayBuffer],{type:"audio/wav"});
+}
+
+function audioBufferToMp3Blob(buffer){
+  const sampleRate=buffer.sampleRate;
+  const channels=buffer.numberOfChannels;
+  const kbps=128;
+
+  const mp3encoder=new lamejs.Mp3Encoder(channels,sampleRate,kbps);
+  const left=floatTo16BitPCM(buffer.getChannelData(0));
+  let right=null;
+
+  if(channels>1){
+    right=floatTo16BitPCM(buffer.getChannelData(1));
+  }
+
+  const blockSize=1152;
+  const mp3Data=[];
+
+  for(let i=0;i<left.length;i+=blockSize){
+    const leftChunk=left.subarray(i,i+blockSize);
+    let mp3buf;
+
+    if(channels>1 && right){
+      const rightChunk=right.subarray(i,i+blockSize);
+      mp3buf=mp3encoder.encodeBuffer(leftChunk,rightChunk);
+    }else{
+      mp3buf=mp3encoder.encodeBuffer(leftChunk);
+    }
+
+    if(mp3buf.length>0) mp3Data.push(mp3buf);
+  }
+
+  const end=mp3encoder.flush();
+  if(end.length>0) mp3Data.push(end);
+
+  return new Blob(mp3Data,{type:"audio/mp3"});
+}
+
+function floatTo16BitPCM(float32Array){
+  const int16Array=new Int16Array(float32Array.length);
+  for(let i=0;i<float32Array.length;i++){
+    let s=Math.max(-1,Math.min(1,float32Array[i]));
+    int16Array[i]=s<0?s*0x8000:s*0x7FFF;
+  }
+  return int16Array;
+}
+
+function writeString(view,offset,string){
+  for(let i=0;i<string.length;i++){
+    view.setUint8(offset+i,string.charCodeAt(i));
+  }
+}
+
+function downloadBlob(blob,filename){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
