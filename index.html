@@ -170,8 +170,14 @@ audio{width:100%;margin:8px 0}
     <button id="stopBtn" disabled>録音停止</button>
   </div>
 
-  <label>ファイル読み込み</label>
-  <input id="fileInput" type="file" accept="audio/*" />
+  <label>ファイル読み込み先</label>
+  <select id="fileTarget">
+    <option value="main">メイン音源として読み込み</option>
+    <option value="take">追加音源として読み込み</option>
+  </select>
+
+  <label>ファイル読み込み（音声・動画対応）</label>
+  <input id="fileInput" type="file" />
 
   <audio id="audio" controls></audio>
 
@@ -266,6 +272,7 @@ const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
 const channelSelect = document.getElementById("channelSelect");
 const recordTarget = document.getElementById("recordTarget");
+const fileTarget = document.getElementById("fileTarget");
 const modeLabel = document.getElementById("modeLabel");
 const timeLabel = document.getElementById("timeLabel");
 const recordBtn = document.getElementById("recordBtn");
@@ -467,18 +474,37 @@ stopBtn.onclick=()=>{
 fileInput.onchange = async(e)=>{
   const file = e.target.files[0];
   if(!file) return;
+
   ensureAudioContext();
-  const arrayBuffer = await file.arrayBuffer();
-  mainBuffer = await audioContext.decodeAudioData(arrayBuffer);
-  mainFxBaked = false;
-  activeBufferType = "main";
-  resetFx();
-  selectedStart = null;
-  selectedEnd = null;
-  playheadRatio = 0;
-  invalidateWaveformCache();
-  refreshPreview();
-  updateButtons();
+
+  try{
+    const arrayBuffer = await file.arrayBuffer();
+    const decoded = await audioContext.decodeAudioData(arrayBuffer);
+
+    if(fileTarget.value === "take"){
+      takeBuffer = decoded;
+      takeFxBaked = false;
+      activeBufferType = "take";
+    }else{
+      mainBuffer = decoded;
+      mainFxBaked = false;
+      activeBufferType = "main";
+    }
+
+    resetFx();
+    selectedStart = null;
+    selectedEnd = null;
+    playheadRatio = 0;
+    invalidateWaveformCache();
+    refreshPreview();
+    updateButtons();
+
+  }catch(err){
+    alert("このファイルから音声を読み込めませんでした。端末やブラウザが対応していない動画形式の可能性があります。MP3 / WAV / M4A / MP4などで試してください。");
+    console.error(err);
+  }
+
+  fileInput.value = "";
 };
 
 function updateButtons(){
