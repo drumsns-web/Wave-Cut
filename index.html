@@ -253,6 +253,8 @@ let selectedStart = null;
 let selectedEnd = null;
 let playheadRatio = 0;
 let animationFrameId = null;
+let waveformCache = null;
+let waveformCacheBuffer = null;
 let currentStream = null;
 
 const micSelect = document.getElementById("micSelect");
@@ -303,6 +305,7 @@ function activeBuffer(){
 function setActiveBuffer(buffer){
   if(activeBufferType === "take") takeBuffer = buffer;
   else mainBuffer = buffer;
+  invalidateWaveformCache();
 }
 
 function isActiveFxBaked(){
@@ -316,6 +319,11 @@ function setActiveFxBaked(value){
 
 function clearActiveFxBaked(){
   setActiveFxBaked(false);
+}
+
+function invalidateWaveformCache(){
+  waveformCache = null;
+  waveformCacheBuffer = null;
 }
 
 function resizeCanvas(){
@@ -391,6 +399,7 @@ recordBtn.onclick = async()=>{
     }
 
     currentStream.getTracks().forEach(t=>t.stop());
+    invalidateWaveformCache();
     playheadRatio=0;
     resetFx();
     refreshPreview();
@@ -424,6 +433,7 @@ fileInput.onchange = async(e)=>{
   selectedStart = null;
   selectedEnd = null;
   playheadRatio = 0;
+  invalidateWaveformCache();
   refreshPreview();
   updateButtons();
 };
@@ -645,12 +655,13 @@ applyFxBtn.onclick = async()=>{
   updateButtons();
 };
 
-selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; playheadRatio=0; resetFx(); refreshPreview(); updateButtons();};
-selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selectedEnd=null; playheadRatio=0; resetFx(); refreshPreview(); updateButtons();};
+selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
+selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
 
 prependTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = concatBuffers(takeBuffer, mainBuffer);
+  invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
   activeBufferType="main";
@@ -664,6 +675,7 @@ prependTakeBtn.onclick=()=>{
 appendTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = concatBuffers(mainBuffer, takeBuffer);
+  invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
   activeBufferType="main";
@@ -677,6 +689,7 @@ appendTakeBtn.onclick=()=>{
 mixTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
   mainBuffer = mixBuffers(mainBuffer, takeBuffer);
+  invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
   activeBufferType="main";
@@ -694,14 +707,16 @@ audioEl.addEventListener("play", () => {
 audioEl.addEventListener("pause", () => {
   stopPlayheadAnimation();
   syncPlayheadFromAudio();
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 });
 
 audioEl.addEventListener("ended", () => {
   stopPlayheadAnimation();
   playheadRatio = 0;
   audioEl.currentTime = 0;
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 });
 
 audioEl.addEventListener("timeupdate", () => {
@@ -711,7 +726,8 @@ audioEl.addEventListener("timeupdate", () => {
 
 audioEl.addEventListener("seeked", () => {
   syncPlayheadFromAudio();
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 });
 
 function startPlayheadAnimation(){
@@ -762,7 +778,37 @@ function seekToRatio(ratio){
   if(audioEl.duration && isFinite(audioEl.duration)){
     audioEl.currentTime = audioEl.duration * playheadRatio;
   }
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+}
+
+function getWaveformPeaks(buffer, width){
+  if(!buffer) return null;
+  if(waveformCache && waveformCacheBuffer === buffer && waveformCache.width === width){
+    return waveformCache;
+  }
+
+  const data = buffer.getChannelData(0);
+  const step = Math.max(1, Math.ceil(data.length / width));
+  const mins = new Float32Array(width);
+  const maxs = new Float32Array(width);
+
+  for(let i=0;i<width;i++){
+    let min=1,max=-1;
+    const start = i * step;
+    const stop = Math.min(data.length, start + step);
+    for(let j=start;j<stop;j++){
+      const datum=data[j] || 0;
+      if(datum<min) min=datum;
+      if(datum>max) max=datum;
+    }
+    mins[i]=min;
+    maxs[i]=max;
+  }
+
+  waveformCache = {width, mins, maxs};
+  waveformCacheBuffer = buffer;
+  return waveformCache;
 }
 
 function drawWaveform(buffer){
@@ -778,37 +824,30 @@ function drawWaveform(buffer){
     ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
   }
 
-  if(!buffer) return;
+  if(buffer){
+    const peaks = getWaveformPeaks(buffer, w);
+    const amp = h / 2;
 
-  const data = buffer.getChannelData(0);
-  const step = Math.ceil(data.length / w);
-  const amp = h / 2;
+    const grad = ctx.createLinearGradient(0,0,w,0);
+    grad.addColorStop(0,"#35e0a1");
+    grad.addColorStop(1,"#4f8cff");
 
-  const grad = ctx.createLinearGradient(0,0,w,0);
-  grad.addColorStop(0,"#35e0a1");
-  grad.addColorStop(1,"#4f8cff");
+    ctx.strokeStyle=grad;
+    ctx.lineWidth=1.2;
+    ctx.beginPath();
 
-  ctx.strokeStyle=grad;
-  ctx.lineWidth=1.2;
-  ctx.beginPath();
-
-  for(let i=0;i<w;i++){
-    let min=1,max=-1;
-    for(let j=0;j<step;j++){
-      const datum=data[(i*step)+j] || 0;
-      if(datum<min) min=datum;
-      if(datum>max) max=datum;
+    for(let i=0;i<w;i++){
+      ctx.moveTo(i,(1+peaks.mins[i])*amp);
+      ctx.lineTo(i,(1+peaks.maxs[i])*amp);
     }
-    ctx.moveTo(i,(1+min)*amp);
-    ctx.lineTo(i,(1+max)*amp);
-  }
-  ctx.stroke();
+    ctx.stroke();
 
-  if(selectedStart!==null && selectedEnd!==null){
-    const x1=Math.min(selectedStart,selectedEnd)*w;
-    const x2=Math.max(selectedStart,selectedEnd)*w;
-    ctx.fillStyle="rgba(79,140,255,.30)";
-    ctx.fillRect(x1,0,x2-x1,h);
+    if(selectedStart!==null && selectedEnd!==null){
+      const x1=Math.min(selectedStart,selectedEnd)*w;
+      const x2=Math.max(selectedStart,selectedEnd)*w;
+      ctx.fillStyle="rgba(79,140,255,.30)";
+      ctx.fillRect(x1,0,x2-x1,h);
+    }
   }
 
   const px = playheadRatio * w;
@@ -834,13 +873,15 @@ canvas.addEventListener("pointerdown",e=>{
   pointerDownRatio=getCanvasRatio(e);
   selectedStart=pointerDownRatio;
   selectedEnd=selectedStart;
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 });
 
 canvas.addEventListener("pointermove",e=>{
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 });
 
 canvas.addEventListener("pointerup",e=>{
@@ -854,7 +895,8 @@ canvas.addEventListener("pointerup",e=>{
     selectedEnd = null;
     seekToRatio(upRatio);
   }else{
-    refreshPreview();
+    drawWaveform(activeBuffer());
+    updateTimeLabel(activeBuffer());
   }
 });
 
@@ -869,7 +911,8 @@ setStartBtn.onclick=()=>{
   if(selectedEnd === null || selectedEnd <= selectedStart){
     selectedEnd = Math.min(1, selectedStart + 0.03);
   }
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 };
 
 setEndBtn.onclick=()=>{
@@ -878,7 +921,8 @@ setEndBtn.onclick=()=>{
   if(selectedStart === null || selectedStart >= selectedEnd){
     selectedStart = Math.max(0, selectedEnd - 0.03);
   }
-  refreshPreview();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
 };
 
 cutBtn.onclick=()=>{
