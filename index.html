@@ -347,6 +347,24 @@ audio{width:100%;margin:8px 0}
 <section class="card">
   <p class="section-title">Wave Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
   <div id="sourceStatus" class="info">現在表示：未読み込み</div>
+
+  <div class="row">
+    <div>
+      <label>波形ズーム</label>
+      <select id="zoomSelect">
+        <option value="1" selected>1x 全体表示</option>
+        <option value="2">2x</option>
+        <option value="5">5x</option>
+        <option value="10">10x</option>
+        <option value="20">20x</option>
+      </select>
+    </div>
+    <div>
+      <label>表示位置：<span id="viewPositionLabel">先頭</span></label>
+      <input id="viewScroll" type="range" min="0" max="1000" step="1" value="0">
+    </div>
+  </div>
+
   <canvas id="waveCanvas"></canvas>
   <div class="row">
     <button id="setStartBtn" disabled>現在位置を開始点</button>
@@ -421,6 +439,8 @@ let takeFxBaked = false;
 let selectedStart = null;
 let selectedEnd = null;
 let playheadRatio = 0;
+let zoomLevel = 1;
+let viewportStart = 0;
 let animationFrameId = null;
 let waveformCache = null;
 let waveformCacheBuffer = null;
@@ -439,6 +459,9 @@ const fileInput = document.getElementById("fileInput");
 const fileStatus = document.getElementById("fileStatus");
 const selectedFileName = document.getElementById("selectedFileName");
 const sourceStatus = document.getElementById("sourceStatus");
+const zoomSelect = document.getElementById("zoomSelect");
+const viewScroll = document.getElementById("viewScroll");
+const viewPositionLabel = document.getElementById("viewPositionLabel");
 const deleteMainBtn = document.getElementById("deleteMainBtn");
 const deleteTakeBtn = document.getElementById("deleteTakeBtn");
 const setStartBtn = document.getElementById("setStartBtn");
@@ -501,12 +524,59 @@ function invalidateWaveformCache(){
   waveformCacheBuffer = null;
 }
 
+function getViewportEnd(){
+  return Math.min(1, viewportStart + (1 / zoomLevel));
+}
+
+function clampViewport(){
+  const maxStart = Math.max(0, 1 - (1 / zoomLevel));
+  viewportStart = Math.min(maxStart, Math.max(0, viewportStart));
+  viewScroll.value = maxStart === 0 ? 0 : Math.round((viewportStart / maxStart) * 1000);
+  updateViewPositionLabel();
+}
+
+function updateViewPositionLabel(){
+  const buffer = activeBuffer();
+  if(!buffer){
+    viewPositionLabel.textContent = "先頭";
+    return;
+  }
+  const startSec = buffer.duration * viewportStart;
+  const endSec = buffer.duration * getViewportEnd();
+  viewPositionLabel.textContent = `${formatTime(startSec)} - ${formatTime(endSec)}`;
+}
+
+function centerViewportOnPlayhead(){
+  if(zoomLevel <= 1){
+    viewportStart = 0;
+  }else{
+    viewportStart = playheadRatio - (1 / zoomLevel) / 2;
+  }
+  clampViewport();
+}
+
+zoomSelect.onchange = ()=>{
+  zoomLevel = Number(zoomSelect.value);
+  centerViewportOnPlayhead();
+  invalidateWaveformCache();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+};
+
+viewScroll.oninput = ()=>{
+  const maxStart = Math.max(0, 1 - (1 / zoomLevel));
+  viewportStart = maxStart * (Number(viewScroll.value) / 1000);
+  invalidateWaveformCache();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+};
+
 function resizeCanvas(){
   canvas.width = canvas.clientWidth * devicePixelRatio;
   canvas.height = canvas.clientHeight * devicePixelRatio;
 }
 resizeCanvas();
-window.addEventListener("resize",()=>{resizeCanvas();refreshPreview();});
+window.addEventListener("resize",()=>{resizeCanvas();invalidateWaveformCache();refreshPreview();});
 
 async function loadMics(){
   try{
@@ -531,6 +601,7 @@ function clearSelectionAndPreview(){
   selectedStart = null;
   selectedEnd = null;
   playheadRatio = 0;
+  viewportStart = 0;
   audioEl.pause();
   audioEl.removeAttribute("src");
   audioEl.load();
@@ -678,6 +749,8 @@ fileInput.onchange = async(e)=>{
     selectedStart = null;
     selectedEnd = null;
     playheadRatio = 0;
+    viewportStart = 0;
+    clampViewport();
     invalidateWaveformCache();
     refreshPreview();
     updateButtons();
@@ -693,6 +766,7 @@ fileInput.onchange = async(e)=>{
 function updateButtons(){
   const hasActive = !!activeBuffer();
   updateSourceStatus();
+  updateViewPositionLabel();
   setStartBtn.disabled = !hasActive;
   setEndBtn.disabled = !hasActive;
   cutBtn.disabled = !hasActive;
@@ -718,7 +792,7 @@ function updateSourceStatus(){
     return;
   }
 
-  sourceStatus.textContent = `現在表示：${current} / タイムライン長さ ${formatTime(buffer.duration)} / 編集対象はこの波形です`;
+  sourceStatus.textContent = `現在表示：${current} / タイムライン長さ ${formatTime(buffer.duration)} / ズーム ${zoomLevel}x / 編集対象はこの波形です`;
 }
 
 function setFileStatus(file, targetText, decoded){
@@ -1036,6 +1110,10 @@ function startPlayheadAnimation(){
   stopPlayheadAnimation();
   const tick = () => {
     syncPlayheadFromAudio();
+    if(zoomLevel > 1 && (playheadRatio < viewportStart || playheadRatio > getViewportEnd())){
+      centerViewportOnPlayhead();
+      invalidateWaveformCache();
+    }
     drawWaveform(activeBuffer());
     updateTimeLabel(activeBuffer());
     if(!audioEl.paused && !audioEl.ended){
@@ -1086,20 +1164,32 @@ function seekToRatio(ratio){
 
 function getWaveformPeaks(buffer, width){
   if(!buffer) return null;
-  if(waveformCache && waveformCacheBuffer === buffer && waveformCache.width === width){
+
+  const startRatio = viewportStart;
+  const endRatio = getViewportEnd();
+  const cacheKey = `${width}_${startRatio.toFixed(6)}_${endRatio.toFixed(6)}_${zoomLevel}`;
+
+  if(
+    waveformCache &&
+    waveformCacheBuffer === buffer &&
+    waveformCache.key === cacheKey
+  ){
     return waveformCache;
   }
 
   const data = buffer.getChannelData(0);
-  const step = Math.max(1, Math.ceil(data.length / width));
+  const startSample = Math.floor(data.length * startRatio);
+  const endSample = Math.max(startSample + 1, Math.floor(data.length * endRatio));
+  const visibleLength = endSample - startSample;
+  const step = Math.max(1, Math.ceil(visibleLength / width));
   const mins = new Float32Array(width);
   const maxs = new Float32Array(width);
 
   for(let i=0;i<width;i++){
     let min=1,max=-1;
-    const start = i * step;
-    const stop = Math.min(data.length, start + step);
-    for(let j=start;j<stop;j++){
+    const s = startSample + i * step;
+    const stop = Math.min(endSample, s + step);
+    for(let j=s;j<stop;j++){
       const datum=data[j] || 0;
       if(datum<min) min=datum;
       if(datum>max) max=datum;
@@ -1108,7 +1198,7 @@ function getWaveformPeaks(buffer, width){
     maxs[i]=max;
   }
 
-  waveformCache = {width, mins, maxs};
+  waveformCache = {key: cacheKey, width, mins, maxs};
   waveformCacheBuffer = buffer;
   return waveformCache;
 }
@@ -1144,15 +1234,22 @@ function drawWaveform(buffer){
     }
     ctx.stroke();
 
+    const visibleStart = viewportStart;
+    const visibleEnd = getViewportEnd();
+
     if(selectedStart!==null && selectedEnd!==null && selectedEnd > selectedStart){
-      const x1=selectedStart*w;
-      const x2=selectedEnd*w;
-      ctx.fillStyle="rgba(79,140,255,.30)";
-      ctx.fillRect(x1,0,x2-x1,h);
+      const clippedStart = Math.max(selectedStart, visibleStart);
+      const clippedEnd = Math.min(selectedEnd, visibleEnd);
+      if(clippedEnd > clippedStart){
+        const x1=((clippedStart-visibleStart)/(visibleEnd-visibleStart))*w;
+        const x2=((clippedEnd-visibleStart)/(visibleEnd-visibleStart))*w;
+        ctx.fillStyle="rgba(79,140,255,.30)";
+        ctx.fillRect(x1,0,x2-x1,h);
+      }
     }
 
-    if(selectedStart!==null){
-      const sx = selectedStart * w;
+    if(selectedStart!==null && selectedStart>=visibleStart && selectedStart<=visibleEnd){
+      const sx = ((selectedStart-visibleStart)/(visibleEnd-visibleStart)) * w;
       ctx.strokeStyle = "#35e0a1";
       ctx.lineWidth = 2.5;
       ctx.beginPath();
@@ -1161,8 +1258,8 @@ function drawWaveform(buffer){
       ctx.stroke();
     }
 
-    if(selectedEnd!==null){
-      const ex = selectedEnd * w;
+    if(selectedEnd!==null && selectedEnd>=visibleStart && selectedEnd<=visibleEnd){
+      const ex = ((selectedEnd-visibleStart)/(visibleEnd-visibleStart)) * w;
       ctx.strokeStyle = "#4f8cff";
       ctx.lineWidth = 2.5;
       ctx.beginPath();
@@ -1172,18 +1269,23 @@ function drawWaveform(buffer){
     }
   }
 
-  const px = playheadRatio * w;
-  ctx.strokeStyle = "#f8fafc";
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  ctx.moveTo(px, 0);
-  ctx.lineTo(px, h);
-  ctx.stroke();
+  const visibleStart = viewportStart;
+  const visibleEnd = getViewportEnd();
 
-  ctx.fillStyle = "#f8fafc";
-  ctx.beginPath();
-  ctx.arc(px, 13 * devicePixelRatio, 6 * devicePixelRatio, 0, Math.PI * 2);
-  ctx.fill();
+  if(playheadRatio>=visibleStart && playheadRatio<=visibleEnd){
+    const px = ((playheadRatio-visibleStart)/(visibleEnd-visibleStart)) * w;
+    ctx.strokeStyle = "#f8fafc";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, h);
+    ctx.stroke();
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.beginPath();
+    ctx.arc(px, 13 * devicePixelRatio, 6 * devicePixelRatio, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 let isDragging=false;
@@ -1229,7 +1331,8 @@ canvas.addEventListener("pointerup",e=>{
 
 function getCanvasRatio(e){
   const rect=canvas.getBoundingClientRect();
-  return Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
+  const xRatio = Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
+  return Math.min(1, Math.max(0, viewportStart + xRatio * (1 / zoomLevel)));
 }
 
 setStartBtn.onclick=()=>{
