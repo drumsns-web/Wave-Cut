@@ -1126,11 +1126,31 @@ function drawWaveform(buffer){
     }
     ctx.stroke();
 
-    if(selectedStart!==null && selectedEnd!==null){
-      const x1=Math.min(selectedStart,selectedEnd)*w;
-      const x2=Math.max(selectedStart,selectedEnd)*w;
+    if(selectedStart!==null && selectedEnd!==null && selectedEnd > selectedStart){
+      const x1=selectedStart*w;
+      const x2=selectedEnd*w;
       ctx.fillStyle="rgba(79,140,255,.30)";
       ctx.fillRect(x1,0,x2-x1,h);
+    }
+
+    if(selectedStart!==null){
+      const sx = selectedStart * w;
+      ctx.strokeStyle = "#35e0a1";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
+      ctx.stroke();
+    }
+
+    if(selectedEnd!==null){
+      const ex = selectedEnd * w;
+      ctx.strokeStyle = "#4f8cff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(ex, 0);
+      ctx.lineTo(ex, h);
+      ctx.stroke();
     }
   }
 
@@ -1150,10 +1170,14 @@ function drawWaveform(buffer){
 
 let isDragging=false;
 let pointerDownRatio=0;
+let beforePointerStart=null;
+let beforePointerEnd=null;
 
 canvas.addEventListener("pointerdown",e=>{
   if(!activeBuffer()) return;
   isDragging=true;
+  beforePointerStart = selectedStart;
+  beforePointerEnd = selectedEnd;
   pointerDownRatio=getCanvasRatio(e);
   selectedStart=pointerDownRatio;
   selectedEnd=selectedStart;
@@ -1175,8 +1199,9 @@ canvas.addEventListener("pointerup",e=>{
   isDragging=false;
 
   if(moved < 0.01){
-    selectedStart = null;
-    selectedEnd = null;
+    // タップはシーク移動だけ。開始点/終了点は消さない。
+    selectedStart = beforePointerStart;
+    selectedEnd = beforePointerEnd;
     seekToRatio(upRatio);
   }else{
     drawWaveform(activeBuffer());
@@ -1192,9 +1217,12 @@ function getCanvasRatio(e){
 setStartBtn.onclick=()=>{
   if(!activeBuffer()) return;
   selectedStart = playheadRatio;
-  if(selectedEnd === null || selectedEnd <= selectedStart){
-    selectedEnd = Math.min(1, selectedStart + 0.03);
+
+  // 終了点が未設定、または開始点より前にある場合は、まだ範囲選択として塗らない
+  if(selectedEnd !== null && selectedEnd <= selectedStart){
+    selectedEnd = null;
   }
+
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
 };
@@ -1202,9 +1230,16 @@ setStartBtn.onclick=()=>{
 setEndBtn.onclick=()=>{
   if(!activeBuffer()) return;
   selectedEnd = playheadRatio;
-  if(selectedStart === null || selectedStart >= selectedEnd){
-    selectedStart = Math.max(0, selectedEnd - 0.03);
+
+  // 開始点が未設定、または終了点より後ろにある場合は、開始点は消さずに終了点だけ未確定扱いにする
+  if(selectedStart === null){
+    selectedStart = selectedEnd;
+    selectedEnd = null;
+  }else if(selectedEnd <= selectedStart){
+    alert("終了点は開始点より後ろに設定してください。");
+    selectedEnd = null;
   }
+
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
 };
@@ -1228,7 +1263,7 @@ trimBtn.onclick=()=>{
 };
 
 function hasSelection(){
-  return activeBuffer() && selectedStart!==null && selectedEnd!==null && Math.abs(selectedEnd-selectedStart)>0.005;
+  return activeBuffer() && selectedStart!==null && selectedEnd!==null && selectedEnd > selectedStart && Math.abs(selectedEnd-selectedStart)>0.005;
 }
 
 function cutAudioBuffer(buffer,startRatio,endRatio){
