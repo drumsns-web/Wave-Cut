@@ -75,9 +75,9 @@ document.addEventListener("keydown", (e) => {
   if(key === " "){
     e.preventDefault();
     if(audioEl.paused){
-      audioEl.play().catch(()=>{});
+      playFromWave();
     }else{
-      audioEl.pause();
+      pauseFromWave();
     }
     return;
   }
@@ -400,6 +400,25 @@ audio{width:100%;margin:8px 0}
 }
 
 
+
+.wave-transport{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin:8px 0 10px;
+}
+.wave-play-btn{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#60a5fa,#2563eb 60%,#1d4ed8);
+  border-color:rgba(147,197,253,.40);
+}
+.wave-stop-btn{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.14),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#475569,#334155 60%,#1e293b);
+}
+
 .time-ruler{
   width:100%;
   height:34px;
@@ -497,6 +516,13 @@ audio{width:100%;margin:8px 0}
   color:var(--muted);
   line-height:1.65;
 }
+.extracting{
+  color:#35e0a1;
+  background:rgba(53,224,161,.10);
+  border:1px solid rgba(53,224,161,.25);
+  border-radius:12px;
+  padding:10px;
+}
 .small{
   font-size:12px;
   color:var(--muted);
@@ -586,6 +612,12 @@ audio{width:100%;margin:8px 0}
   <div class="time-ruler">
     <canvas id="timeRulerCanvas"></canvas>
   </div>
+
+  <div class="wave-transport">
+    <button id="wavePlayBtn" class="wave-play-btn" disabled>▶ 波形を見ながら再生</button>
+    <button id="wavePauseBtn" class="wave-stop-btn" disabled>⏸ 停止</button>
+  </div>
+
   <canvas id="waveCanvas" class="wave-canvas-joined"></canvas>
 
   <div class="nudge-panel">
@@ -737,6 +769,8 @@ const ctx = canvas.getContext("2d");
 const timeRulerCanvas = document.getElementById("timeRulerCanvas");
 const timeRulerCtx = timeRulerCanvas.getContext("2d");
 const bigTimeLabel = document.getElementById("bigTimeLabel");
+const wavePlayBtn = document.getElementById("wavePlayBtn");
+const wavePauseBtn = document.getElementById("wavePauseBtn");
 
 function ensureAudioContext(){
   if(!audioContext) audioContext = new AudioContext();
@@ -823,7 +857,12 @@ function resizeCanvas(){
   timeRulerCanvas.height = timeRulerCanvas.clientHeight * devicePixelRatio;
 }
 resizeCanvas();
-window.addEventListener("resize",()=>{resizeCanvas();invalidateWaveformCache();refreshPreview();});
+window.addEventListener("resize",()=>{
+  resizeCanvas();
+  invalidateWaveformCache();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+});
 
 async function loadMics(){
   try{
@@ -956,6 +995,150 @@ stopBtn.onclick=()=>{
   recordBtn.classList.remove("red");
 };
 
+
+async function decodeFileToAudioBuffer(file){
+  ensureAudioContext();
+
+  // まず通常の高速デコードを試す。MP3/WAV/M4A/一部MP4はここで通る。
+  try{
+    const arrayBuffer = await file.arrayBuffer();
+    return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+  }catch(primaryError){
+    console.warn("Direct decode failed. Trying media element fallback.", primaryError);
+  }
+
+  // MOV/MP4など、コンテナごとdecodeAudioDataできない場合の代替。
+  // ブラウザのvideo/audio再生機能で読み込み、Web Audio経由で音声だけを実時間抽出する。
+  return await extractAudioViaMediaElement(file);
+}
+
+function extractAudioViaMediaElement(file){
+  return new Promise(async (resolve, reject)=>{
+    ensureAudioContext();
+
+    try{
+      if(audioContext.state === "suspended"){
+        await audioContext.resume();
+      }
+
+      const url = URL.createObjectURL(file);
+      const media = document.createElement(file.type.startsWith("audio/") ? "audio" : "video");
+      media.src = url;
+      media.crossOrigin = "anonymous";
+      media.preload = "auto";
+      media.muted = false;
+      media.playsInline = true;
+      media.style.display = "none";
+      document.body.appendChild(media);
+
+      const cleanup = ()=>{
+        try{ media.pause(); }catch(e){}
+        try{ URL.revokeObjectURL(url); }catch(e){}
+        try{ media.remove(); }catch(e){}
+      };
+
+      media.onerror = ()=>{
+        cleanup();
+        reject(new Error("media element could not load this file"));
+      };
+
+      media.onloadedmetadata = async ()=>{
+        const duration = media.duration;
+
+        if(!duration || !isFinite(duration)){
+          cleanup();
+          reject(new Error("media duration is unknown"));
+          return;
+        }
+
+        const sampleRate = audioContext.sampleRate;
+        const channels = 2;
+        const chunks = [[], []];
+        let recordedSamples = 0;
+
+        fileStatus.innerHTML =
+          `通常デコードに失敗したため、代替方式で音声抽出中...<br>` +
+          `この方式では動画の長さに近い時間がかかる場合があります。<br>` +
+          `長さ：${formatTime(duration)}`;
+
+        const source = audioContext.createMediaElementSource(media);
+        const processor = audioContext.createScriptProcessor(4096, channels, channels);
+        const zeroGain = audioContext.createGain();
+        zeroGain.gain.value = 0;
+
+        source.connect(processor);
+        processor.connect(zeroGain);
+        zeroGain.connect(audioContext.destination);
+
+        processor.onaudioprocess = (event)=>{
+          const input = event.inputBuffer;
+          const len = input.length;
+
+          for(let ch=0; ch<channels; ch++){
+            const sourceCh = Math.min(ch, input.numberOfChannels - 1);
+            const data = input.getChannelData(sourceCh);
+            chunks[ch].push(new Float32Array(data));
+          }
+
+          recordedSamples += len;
+
+          if(media.duration && isFinite(media.duration)){
+            const pct = Math.min(100, Math.round((media.currentTime / media.duration) * 100));
+            fileStatus.innerHTML =
+              `代替方式で音声抽出中... ${pct}%<br>` +
+              `動画部分は使わず、音声のみを取り出しています。<br>` +
+              `${formatTime(media.currentTime)} / ${formatTime(media.duration)}`;
+          }
+        };
+
+        media.onended = ()=>{
+          try{
+            processor.disconnect();
+            source.disconnect();
+            zeroGain.disconnect();
+          }catch(e){}
+
+          const totalLength = chunks[0].reduce((sum, arr)=>sum + arr.length, 0);
+
+          if(totalLength === 0){
+            cleanup();
+            reject(new Error("no audio samples were captured"));
+            return;
+          }
+
+          const buffer = audioContext.createBuffer(channels, totalLength, sampleRate);
+
+          for(let ch=0; ch<channels; ch++){
+            const out = buffer.getChannelData(ch);
+            let offset = 0;
+            for(const arr of chunks[ch]){
+              out.set(arr, offset);
+              offset += arr.length;
+            }
+          }
+
+          cleanup();
+          resolve(buffer);
+        };
+
+        media.currentTime = 0;
+
+        try{
+          await media.play();
+        }catch(playError){
+          cleanup();
+          reject(playError);
+        }
+      };
+
+      media.load();
+
+    }catch(err){
+      reject(err);
+    }
+  });
+}
+
 fileInput.onchange = async(e)=>{
   const file = e.target.files[0];
   if(!file) return;
@@ -964,8 +1147,10 @@ fileInput.onchange = async(e)=>{
   ensureAudioContext();
 
   try{
-    const arrayBuffer = await file.arrayBuffer();
-    const decoded = await audioContext.decodeAudioData(arrayBuffer);
+    fileStatus.classList.add("extracting");
+    fileStatus.innerHTML = "読み込み中...<br>動画の場合は音声抽出に少し時間がかかる場合があります。";
+
+    const decoded = await decodeFileToAudioBuffer(file);
 
     let targetText = "";
 
@@ -1001,9 +1186,11 @@ fileInput.onchange = async(e)=>{
     invalidateWaveformCache();
     refreshPreview();
     updateButtons();
+    fileStatus.classList.remove("extracting");
 
   }catch(err){
-    alert("このファイルから音声を読み込めませんでした。端末やブラウザが対応していない動画形式の可能性があります。MP3 / WAV / M4A / MP4などで試してください。");
+    fileStatus.classList.remove("extracting");
+    alert("このファイルから音声を読み込めませんでした。端末やブラウザが対応していない形式、またはiPhoneの制限で自動抽出できない可能性があります。MOV / MP4の場合は、もう一度選択するか、写真アプリ等でMP4/H.264/AAC形式に書き出して試してください。");
     console.error(err);
   }
 
@@ -1014,6 +1201,8 @@ function updateButtons(){
   const hasActive = !!activeBuffer();
   updateSourceStatus();
   updateViewPositionLabel();
+  wavePlayBtn.disabled = !hasActive;
+  wavePauseBtn.disabled = !hasActive;
   setStartBtn.disabled = !hasActive;
   setEndBtn.disabled = !hasActive;
   cutBtn.disabled = !hasActive;
@@ -1325,11 +1514,29 @@ mixTakeBtn.onclick=()=>{
   updateButtons();
 };
 
+
+function playFromWave(){
+  if(!activeBuffer()) return;
+  if(audioEl.duration && isFinite(audioEl.duration)){
+    audioEl.currentTime = audioEl.duration * playheadRatio;
+  }
+  audioEl.play().catch(()=>{});
+}
+
+function pauseFromWave(){
+  audioEl.pause();
+}
+
+wavePlayBtn.onclick = playFromWave;
+wavePauseBtn.onclick = pauseFromWave;
+
 audioEl.addEventListener("play", () => {
+  wavePlayBtn.textContent = "▶ 再生中";
   startPlayheadAnimation();
 });
 
 audioEl.addEventListener("pause", () => {
+  wavePlayBtn.textContent = "▶ 波形を見ながら再生";
   stopPlayheadAnimation();
   syncPlayheadFromAudio();
   drawWaveform(activeBuffer());
@@ -1337,6 +1544,7 @@ audioEl.addEventListener("pause", () => {
 });
 
 audioEl.addEventListener("ended", () => {
+  wavePlayBtn.textContent = "▶ 波形を見ながら再生";
   stopPlayheadAnimation();
   playheadRatio = 0;
   audioEl.currentTime = 0;
@@ -1964,9 +2172,9 @@ document.addEventListener("keydown", (e) => {
   if(key === " "){
     e.preventDefault();
     if(audioEl.paused){
-      audioEl.play().catch(()=>{});
+      playFromWave();
     }else{
-      audioEl.pause();
+      pauseFromWave();
     }
     return;
   }
