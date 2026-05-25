@@ -177,13 +177,17 @@ audio{width:100%;margin:8px 0}
 </section>
 
 <section class="card">
-  <p class="section-title">Wave Edit <span class="pill">Cut / Trim</span></p>
+  <p class="section-title">Wave Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
   <canvas id="waveCanvas"></canvas>
+  <div class="row">
+    <button id="setStartBtn" disabled>現在位置を開始点</button>
+    <button id="setEndBtn" disabled>現在位置を終了点</button>
+  </div>
   <div class="row">
     <button id="cutBtn" disabled>選択範囲をカット</button>
     <button id="trimBtn" disabled>選択範囲だけ残す</button>
   </div>
-  <p class="small">波形をドラッグして範囲選択。追加録音を選択中の場合もカットできます。</p>
+  <p class="small">波形をタップするとその位置へ移動。ドラッグで範囲選択。再生ライン位置を開始点/終了点にもできます。</p>
 </section>
 
 <section class="card">
@@ -247,6 +251,8 @@ let mainFxBaked = false;
 let takeFxBaked = false;
 let selectedStart = null;
 let selectedEnd = null;
+let playheadRatio = 0;
+let animationFrameId = null;
 let currentStream = null;
 
 const micSelect = document.getElementById("micSelect");
@@ -254,9 +260,12 @@ const refreshMicBtn = document.getElementById("refreshMicBtn");
 const channelSelect = document.getElementById("channelSelect");
 const recordTarget = document.getElementById("recordTarget");
 const modeLabel = document.getElementById("modeLabel");
+const timeLabel = document.getElementById("timeLabel");
 const recordBtn = document.getElementById("recordBtn");
 const stopBtn = document.getElementById("stopBtn");
 const fileInput = document.getElementById("fileInput");
+const setStartBtn = document.getElementById("setStartBtn");
+const setEndBtn = document.getElementById("setEndBtn");
 const cutBtn = document.getElementById("cutBtn");
 const trimBtn = document.getElementById("trimBtn");
 const saveWavBtn = document.getElementById("saveWavBtn");
@@ -344,6 +353,7 @@ recordBtn.onclick = async()=>{
   recordedChunks=[];
   selectedStart=null;
   selectedEnd=null;
+  playheadRatio=0;
 
   const channelCount = Number(channelSelect.value);
   const deviceId = micSelect.value;
@@ -381,6 +391,7 @@ recordBtn.onclick = async()=>{
     }
 
     currentStream.getTracks().forEach(t=>t.stop());
+    playheadRatio=0;
     resetFx();
     refreshPreview();
     updateButtons();
@@ -412,12 +423,15 @@ fileInput.onchange = async(e)=>{
   resetFx();
   selectedStart = null;
   selectedEnd = null;
+  playheadRatio = 0;
   refreshPreview();
   updateButtons();
 };
 
 function updateButtons(){
   const hasActive = !!activeBuffer();
+  setStartBtn.disabled = !hasActive;
+  setEndBtn.disabled = !hasActive;
   cutBtn.disabled = !hasActive;
   trimBtn.disabled = !hasActive;
   saveWavBtn.disabled = !mainBuffer;
@@ -465,7 +479,19 @@ async function refreshPreview(){
 
 function updateAudioElement(buffer){
   const wavBlob = audioBufferToWavBlob(buffer);
+  const wasPaused = audioEl.paused;
+  const currentRatio = playheadRatio || 0;
   audioEl.src = URL.createObjectURL(wavBlob);
+  audioEl.onloadedmetadata = () => {
+    if(audioEl.duration && isFinite(audioEl.duration)){
+      audioEl.currentTime = Math.min(audioEl.duration, audioEl.duration * currentRatio);
+      updateTimeLabel(buffer);
+      if(!wasPaused){
+        audioEl.play().catch(()=>{});
+      }
+    }
+  };
+  updateTimeLabel(buffer);
 }
 
 async function processEffects(buffer){
@@ -619,8 +645,8 @@ applyFxBtn.onclick = async()=>{
   updateButtons();
 };
 
-selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; resetFx(); refreshPreview(); updateButtons();};
-selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selectedEnd=null; resetFx(); refreshPreview(); updateButtons();};
+selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; playheadRatio=0; resetFx(); refreshPreview(); updateButtons();};
+selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selectedEnd=null; playheadRatio=0; resetFx(); refreshPreview(); updateButtons();};
 
 prependTakeBtn.onclick=()=>{
   if(!mainBuffer || !takeBuffer) return;
@@ -629,6 +655,7 @@ prependTakeBtn.onclick=()=>{
   takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
+  playheadRatio=0;
   resetFx();
   refreshPreview();
   updateButtons();
@@ -641,6 +668,7 @@ appendTakeBtn.onclick=()=>{
   takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
+  playheadRatio=0;
   resetFx();
   refreshPreview();
   updateButtons();
@@ -653,10 +681,89 @@ mixTakeBtn.onclick=()=>{
   takeFxBaked = false;
   activeBufferType="main";
   takeBuffer=null;
+  playheadRatio=0;
   resetFx();
   refreshPreview();
   updateButtons();
 };
+
+audioEl.addEventListener("play", () => {
+  startPlayheadAnimation();
+});
+
+audioEl.addEventListener("pause", () => {
+  stopPlayheadAnimation();
+  syncPlayheadFromAudio();
+  refreshPreview();
+});
+
+audioEl.addEventListener("ended", () => {
+  stopPlayheadAnimation();
+  playheadRatio = 0;
+  audioEl.currentTime = 0;
+  refreshPreview();
+});
+
+audioEl.addEventListener("timeupdate", () => {
+  syncPlayheadFromAudio();
+  updateTimeLabel(activeBuffer());
+});
+
+audioEl.addEventListener("seeked", () => {
+  syncPlayheadFromAudio();
+  refreshPreview();
+});
+
+function startPlayheadAnimation(){
+  stopPlayheadAnimation();
+  const tick = () => {
+    syncPlayheadFromAudio();
+    drawWaveform(activeBuffer());
+    updateTimeLabel(activeBuffer());
+    if(!audioEl.paused && !audioEl.ended){
+      animationFrameId = requestAnimationFrame(tick);
+    }
+  };
+  animationFrameId = requestAnimationFrame(tick);
+}
+
+function stopPlayheadAnimation(){
+  if(animationFrameId){
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+}
+
+function syncPlayheadFromAudio(){
+  if(audioEl.duration && isFinite(audioEl.duration)){
+    playheadRatio = Math.min(1, Math.max(0, audioEl.currentTime / audioEl.duration));
+  }
+}
+
+function updateTimeLabel(buffer){
+  if(!buffer){
+    timeLabel.textContent = "00:00 / 00:00";
+    return;
+  }
+  const total = buffer.duration || 0;
+  const current = Math.min(total, total * playheadRatio);
+  timeLabel.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+}
+
+function formatTime(sec){
+  if(!sec || !isFinite(sec)) sec = 0;
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+}
+
+function seekToRatio(ratio){
+  playheadRatio = Math.min(1, Math.max(0, ratio));
+  if(audioEl.duration && isFinite(audioEl.duration)){
+    audioEl.currentTime = audioEl.duration * playheadRatio;
+  }
+  refreshPreview();
+}
 
 function drawWaveform(buffer){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -703,27 +810,76 @@ function drawWaveform(buffer){
     ctx.fillStyle="rgba(79,140,255,.30)";
     ctx.fillRect(x1,0,x2-x1,h);
   }
+
+  const px = playheadRatio * w;
+  ctx.strokeStyle = "#f8fafc";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(px, 0);
+  ctx.lineTo(px, h);
+  ctx.stroke();
+
+  ctx.fillStyle = "#f8fafc";
+  ctx.beginPath();
+  ctx.arc(px, 13 * devicePixelRatio, 6 * devicePixelRatio, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 let isDragging=false;
+let pointerDownRatio=0;
+
 canvas.addEventListener("pointerdown",e=>{
   if(!activeBuffer()) return;
   isDragging=true;
-  selectedStart=getCanvasRatio(e);
+  pointerDownRatio=getCanvasRatio(e);
+  selectedStart=pointerDownRatio;
   selectedEnd=selectedStart;
   refreshPreview();
 });
+
 canvas.addEventListener("pointermove",e=>{
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
   refreshPreview();
 });
-canvas.addEventListener("pointerup",()=>{isDragging=false;});
+
+canvas.addEventListener("pointerup",e=>{
+  if(!activeBuffer()) return;
+  const upRatio = getCanvasRatio(e);
+  const moved = Math.abs(upRatio - pointerDownRatio);
+  isDragging=false;
+
+  if(moved < 0.01){
+    selectedStart = null;
+    selectedEnd = null;
+    seekToRatio(upRatio);
+  }else{
+    refreshPreview();
+  }
+});
 
 function getCanvasRatio(e){
   const rect=canvas.getBoundingClientRect();
   return Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
 }
+
+setStartBtn.onclick=()=>{
+  if(!activeBuffer()) return;
+  selectedStart = playheadRatio;
+  if(selectedEnd === null || selectedEnd <= selectedStart){
+    selectedEnd = Math.min(1, selectedStart + 0.03);
+  }
+  refreshPreview();
+};
+
+setEndBtn.onclick=()=>{
+  if(!activeBuffer()) return;
+  selectedEnd = playheadRatio;
+  if(selectedStart === null || selectedStart >= selectedEnd){
+    selectedStart = Math.max(0, selectedEnd - 0.03);
+  }
+  refreshPreview();
+};
 
 cutBtn.onclick=()=>{
   if(!hasSelection()) return;
