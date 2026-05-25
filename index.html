@@ -78,18 +78,106 @@ button,select,input{
   font-size:15px;
 }
 button{
+  position:relative;
   padding:14px 12px;
   margin:6px 0;
   font-weight:800;
   color:#fff;
-  background:linear-gradient(180deg,#334155,#1f2937);
-  border:1px solid rgba(255,255,255,.08);
+  cursor:pointer;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#334155,#1f2937);
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:
+    0 8px 0 rgba(0,0,0,.28),
+    0 14px 28px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.18);
+  transform:translateY(0);
+  transition:
+    transform .12s ease,
+    box-shadow .12s ease,
+    filter .12s ease,
+    border-color .12s ease;
 }
-button.primary{background:linear-gradient(180deg,#3b82f6,#1d4ed8)}
-button.green{background:linear-gradient(180deg,#22c55e,#15803d)}
-button.red{background:linear-gradient(180deg,#ef4444,#991b1b)}
-button.orange{background:linear-gradient(180deg,#f59e0b,#b45309)}
-button:disabled{opacity:.38}
+
+button::after{
+  content:"";
+  position:absolute;
+  inset:1px;
+  border-radius:13px;
+  pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.12),transparent 42%);
+  opacity:.7;
+}
+
+button:hover{
+  filter:brightness(1.13);
+  border-color:rgba(255,255,255,.34);
+  transform:translateY(-1px);
+  box-shadow:
+    0 9px 0 rgba(0,0,0,.30),
+    0 18px 34px rgba(0,0,0,.34),
+    inset 0 1px 0 rgba(255,255,255,.24);
+}
+
+button:active{
+  transform:translateY(5px) scale(.99);
+  box-shadow:
+    0 3px 0 rgba(0,0,0,.32),
+    0 8px 16px rgba(0,0,0,.25),
+    inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+button:focus-visible{
+  outline:3px solid rgba(79,140,255,.65);
+  outline-offset:3px;
+}
+
+button.primary{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#60a5fa,#2563eb 60%,#1d4ed8);
+  border-color:rgba(147,197,253,.40);
+}
+button.green{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#4ade80,#16a34a 60%,#15803d);
+  border-color:rgba(134,239,172,.40);
+}
+button.red{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#f87171,#dc2626 60%,#991b1b);
+  border-color:rgba(252,165,165,.40);
+}
+button.orange{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#fbbf24,#f59e0b 60%,#b45309);
+  border-color:rgba(253,230,138,.40);
+}
+
+button:disabled{
+  opacity:.36;
+  cursor:not-allowed;
+  filter:grayscale(.25);
+  transform:none;
+  box-shadow:
+    0 3px 0 rgba(0,0,0,.18),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+button:disabled:hover,
+button:disabled:active{
+  transform:none;
+  filter:grayscale(.25);
+  box-shadow:
+    0 3px 0 rgba(0,0,0,.18),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
 select{
   padding:13px;
   margin:6px 0;
@@ -116,6 +204,69 @@ canvas{
   touch-action:none;
 }
 audio{width:100%;margin:8px 0}
+.file-row{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+}
+
+.file-hidden{
+  position:absolute;
+  opacity:0;
+  width:1px;
+  height:1px;
+  pointer-events:none;
+}
+
+.file-button{
+  display:block;
+  width:100%;
+  text-align:center;
+  padding:14px 12px;
+  margin:6px 0;
+  border-radius:14px;
+  font-size:15px;
+  font-weight:800;
+  color:#fff;
+  cursor:pointer;
+  user-select:none;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.16),rgba(255,255,255,0) 45%),
+    linear-gradient(180deg,#334155,#1f2937);
+  border:1px solid rgba(255,255,255,.18);
+  box-shadow:
+    0 8px 0 rgba(0,0,0,.28),
+    0 14px 28px rgba(0,0,0,.28),
+    inset 0 1px 0 rgba(255,255,255,.18);
+  transform:translateY(0);
+  transition:transform .12s ease, box-shadow .12s ease, filter .12s ease, border-color .12s ease;
+}
+
+.file-button:hover{
+  filter:brightness(1.13);
+  border-color:rgba(255,255,255,.34);
+  transform:translateY(-1px);
+  box-shadow:
+    0 9px 0 rgba(0,0,0,.30),
+    0 18px 34px rgba(0,0,0,.34),
+    inset 0 1px 0 rgba(255,255,255,.24);
+}
+
+.file-button:active{
+  transform:translateY(5px) scale(.99);
+  box-shadow:
+    0 3px 0 rgba(0,0,0,.32),
+    0 8px 16px rgba(0,0,0,.25),
+    inset 0 1px 0 rgba(255,255,255,.16);
+}
+
+.file-name{
+  font-size:12.5px;
+  color:var(--muted);
+  padding:2px 4px 8px;
+  word-break:break-all;
+}
+
 .pill{
   display:inline-block;
   padding:5px 9px;
@@ -177,7 +328,12 @@ audio{width:100%;margin:8px 0}
   </select>
 
   <label>ファイル読み込み（音声・動画対応）</label>
-  <input id="fileInput" type="file" />
+  <div class="file-row">
+    <input id="fileInput" class="file-hidden" type="file" />
+    <label for="fileInput" class="file-button">ファイルを選択</label>
+    <div id="selectedFileName" class="file-name">選択されていません</div>
+  </div>
+  <div id="fileStatus" class="info">ファイル未選択</div>
 
   <audio id="audio" controls></audio>
 
@@ -189,6 +345,7 @@ audio{width:100%;margin:8px 0}
 
 <section class="card">
   <p class="section-title">Wave Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
+  <div id="sourceStatus" class="info">現在表示：未読み込み</div>
   <canvas id="waveCanvas"></canvas>
   <div class="row">
     <button id="setStartBtn" disabled>現在位置を開始点</button>
@@ -278,6 +435,9 @@ const timeLabel = document.getElementById("timeLabel");
 const recordBtn = document.getElementById("recordBtn");
 const stopBtn = document.getElementById("stopBtn");
 const fileInput = document.getElementById("fileInput");
+const fileStatus = document.getElementById("fileStatus");
+const selectedFileName = document.getElementById("selectedFileName");
+const sourceStatus = document.getElementById("sourceStatus");
 const deleteMainBtn = document.getElementById("deleteMainBtn");
 const deleteTakeBtn = document.getElementById("deleteTakeBtn");
 const setStartBtn = document.getElementById("setStartBtn");
@@ -386,6 +546,10 @@ deleteMainBtn.onclick = ()=>{
   if(activeBufferType === "main"){
     activeBufferType = takeBuffer ? "take" : "main";
   }
+  selectedFileName.textContent = "選択されていません";
+  fileStatus.textContent = "メイン音源を削除しました";
+  selectedFileName.textContent = "選択されていません";
+  fileStatus.textContent = "追加録音を削除しました";
   resetFx();
   clearSelectionAndPreview();
 };
@@ -442,10 +606,12 @@ recordBtn.onclick = async()=>{
       takeBuffer = decoded;
       takeFxBaked = false;
       activeBufferType = "take";
+      fileStatus.textContent = `追加録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
     }else{
       mainBuffer = decoded;
       mainFxBaked = false;
       activeBufferType = "main";
+      fileStatus.textContent = `メイン録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
     }
 
     currentStream.getTracks().forEach(t=>t.stop());
@@ -474,12 +640,15 @@ stopBtn.onclick=()=>{
 fileInput.onchange = async(e)=>{
   const file = e.target.files[0];
   if(!file) return;
+  selectedFileName.textContent = file.name;
 
   ensureAudioContext();
 
   try{
     const arrayBuffer = await file.arrayBuffer();
     const decoded = await audioContext.decodeAudioData(arrayBuffer);
+
+    const targetText = fileTarget.value === "take" ? "追加音源として読み込み" : "メイン音源として読み込み";
 
     if(fileTarget.value === "take"){
       takeBuffer = decoded;
@@ -491,6 +660,7 @@ fileInput.onchange = async(e)=>{
       activeBufferType = "main";
     }
 
+    setFileStatus(file, targetText, decoded);
     resetFx();
     selectedStart = null;
     selectedEnd = null;
@@ -509,6 +679,7 @@ fileInput.onchange = async(e)=>{
 
 function updateButtons(){
   const hasActive = !!activeBuffer();
+  updateSourceStatus();
   setStartBtn.disabled = !hasActive;
   setEndBtn.disabled = !hasActive;
   cutBtn.disabled = !hasActive;
@@ -523,6 +694,38 @@ function updateButtons(){
   prependTakeBtn.disabled = !(mainBuffer && takeBuffer);
   appendTakeBtn.disabled = !(mainBuffer && takeBuffer);
   mixTakeBtn.disabled = !(mainBuffer && takeBuffer);
+}
+
+function updateSourceStatus(){
+  const current = activeBufferType === "take" ? "追加音源" : "メイン音源";
+  const buffer = activeBuffer();
+
+  if(!buffer){
+    sourceStatus.textContent = "現在表示：未読み込み";
+    return;
+  }
+
+  sourceStatus.textContent = `現在表示：${current} / 長さ ${formatTime(buffer.duration)} / 編集対象はこの波形です`;
+}
+
+function setFileStatus(file, targetText, decoded){
+  const isVideo = file.type.startsWith("video/");
+  const isAudio = file.type.startsWith("audio/");
+  const mediaText = isVideo ? "動画ファイル" : isAudio ? "音声ファイル" : "読み込みファイル";
+  const originalType = file.type || "不明";
+  const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
+  const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
+  const extractText = isVideo
+    ? "動画から音声だけを抽出して波形化しました"
+    : "音声を波形化しました";
+
+  fileStatus.innerHTML =
+    `${mediaText}：${file.name}<br>` +
+    `読み込み先：${targetText}<br>` +
+    `${extractText}<br>` +
+    `元ファイル形式：${originalType} / 拡張子 .${ext}<br>` +
+    `編集内部形式：${internalType}<br>` +
+    `長さ：${formatTime(decoded.duration)}`;
 }
 
 function resetFx(){
