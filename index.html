@@ -323,7 +323,8 @@ audio{width:100%;margin:8px 0}
 
   <label>ファイル読み込み先</label>
   <select id="fileTarget">
-    <option value="main">メイン音源として読み込み</option>
+    <option value="append" selected>タイムライン末尾に追加</option>
+    <option value="main">メイン音源を置き換え</option>
     <option value="take">追加音源として読み込み</option>
   </select>
 
@@ -391,7 +392,7 @@ audio{width:100%;margin:8px 0}
     <button id="appendTakeBtn" disabled>追加録音を後ろにくっつける</button>
   </div>
   <button id="mixTakeBtn" disabled class="primary">追加録音を重ねてミックス</button>
-  <p class="small">「前後にくっつける」は連結です。「重ねてミックス」は簡易重ね録りです。</p>
+  <p class="small">通常は「タイムライン末尾に追加」で動画編集ソフトのように後ろへ追加できます。追加音源モードは、先にカットしてから結合・ミックスしたい場合に使います。</p>
 </section>
 
 <section class="card">
@@ -648,16 +649,28 @@ fileInput.onchange = async(e)=>{
     const arrayBuffer = await file.arrayBuffer();
     const decoded = await audioContext.decodeAudioData(arrayBuffer);
 
-    const targetText = fileTarget.value === "take" ? "追加音源として読み込み" : "メイン音源として読み込み";
+    let targetText = "";
 
-    if(fileTarget.value === "take"){
+    if(fileTarget.value === "append"){
+      if(mainBuffer){
+        mainBuffer = concatBuffers(mainBuffer, decoded);
+        targetText = "タイムライン末尾に追加";
+      }else{
+        mainBuffer = decoded;
+        targetText = "メイン音源として新規読み込み";
+      }
+      mainFxBaked = false;
+      activeBufferType = "main";
+    }else if(fileTarget.value === "take"){
       takeBuffer = decoded;
       takeFxBaked = false;
       activeBufferType = "take";
+      targetText = "追加音源として読み込み";
     }else{
       mainBuffer = decoded;
       mainFxBaked = false;
       activeBufferType = "main";
+      targetText = "メイン音源を置き換え";
     }
 
     setFileStatus(file, targetText, decoded);
@@ -705,7 +718,7 @@ function updateSourceStatus(){
     return;
   }
 
-  sourceStatus.textContent = `現在表示：${current} / 長さ ${formatTime(buffer.duration)} / 編集対象はこの波形です`;
+  sourceStatus.textContent = `現在表示：${current} / タイムライン長さ ${formatTime(buffer.duration)} / 編集対象はこの波形です`;
 }
 
 function setFileStatus(file, targetText, decoded){
@@ -729,13 +742,18 @@ function setFileStatus(file, targetText, decoded){
       `現在は音声のみを編集中`;
   }
 
+  const appendNote = targetText.includes("末尾")
+    ? `<br>✅ 既存タイムラインの後ろに連結しました`
+    : "";
+
   fileStatus.innerHTML =
     `${mediaText}：${file.name}<br><br>` +
-    `読み込み先：${targetText}<br><br>` +
+    `読み込み先：${targetText}${appendNote}<br><br>` +
     `${conversionMessage}<br><br>` +
     `元ファイル形式：${originalType} / 拡張子 .${ext}<br>` +
     `現在の編集形式：${internalType}<br>` +
-    `長さ：${formatTime(decoded.duration)}`;
+    `今回読み込んだ長さ：${formatTime(decoded.duration)}<br>` +
+    `現在のタイムライン全体：${mainBuffer ? formatTime(mainBuffer.duration) : formatTime(decoded.duration)}`;
 }
 
 function resetFx(){
