@@ -9,139 +9,10 @@
 <meta name="apple-mobile-web-app-title" content="WaveCut">
 <meta name="application-name" content="WaveCut">
 <meta name="theme-color" content="#0b1020">
-<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js">
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
+<script src="https://unpkg.com/@ffmpeg/util@0.12.2/dist/umd/index.js"></script>
 
-function nudgePlayhead(seconds){
-  const buffer = activeBuffer();
-  if(!buffer || !buffer.duration) return;
-
-  const currentSec = buffer.duration * playheadRatio;
-  const nextSec = Math.min(buffer.duration, Math.max(0, currentSec + seconds));
-  seekToRatio(nextSec / buffer.duration);
-
-  if(zoomLevel > 1 && (playheadRatio < viewportStart || playheadRatio > getViewportEnd())){
-    centerViewportOnPlayhead();
-    invalidateWaveformCache();
-  }
-
-  drawWaveform(activeBuffer());
-  updateTimeLabel(activeBuffer());
-}
-
-document.querySelectorAll("[data-nudge]").forEach(btn=>{
-  let holdTimer = null;
-  let repeatTimer = null;
-
-  const amount = Number(btn.dataset.nudge);
-
-  const start = (e)=>{
-    e.preventDefault();
-    nudgePlayhead(amount);
-
-    holdTimer = setTimeout(()=>{
-      repeatTimer = setInterval(()=>{
-        nudgePlayhead(amount);
-      }, 120);
-    }, 450);
-  };
-
-  const stop = ()=>{
-    if(holdTimer) clearTimeout(holdTimer);
-    if(repeatTimer) clearInterval(repeatTimer);
-    holdTimer = null;
-    repeatTimer = null;
-  };
-
-  btn.addEventListener("pointerdown", start);
-  btn.addEventListener("pointerup", stop);
-  btn.addEventListener("pointerleave", stop);
-  btn.addEventListener("pointercancel", stop);
-});
-
-// PC keyboard shortcuts
-document.addEventListener("keydown", (e) => {
-  const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : "";
-  const isTyping =
-    tag === "input" ||
-    tag === "select" ||
-    tag === "textarea" ||
-    e.target?.isContentEditable;
-
-  if(isTyping) return;
-  if(!activeBuffer()) return;
-
-  const key = e.key.toLowerCase();
-
-  if(key === " "){
-    e.preventDefault();
-    if(audioEl.paused){
-      playFromWave();
-    }else{
-      pauseFromWave();
-    }
-    return;
-  }
-
-  if(key === "a"){
-    e.preventDefault();
-    setStartBtn.click();
-    return;
-  }
-
-  if(key === "b"){
-    e.preventDefault();
-    setEndBtn.click();
-    return;
-  }
-
-  if(key === "c"){
-    e.preventDefault();
-    if(!cutBtn.disabled) cutBtn.click();
-    return;
-  }
-
-  if(key === "t"){
-    e.preventDefault();
-    if(!trimBtn.disabled) trimBtn.click();
-    return;
-  }
-
-  if(e.key === "ArrowLeft" || e.key === "ArrowRight"){
-    e.preventDefault();
-    const stepSec = e.shiftKey ? 30 : 5;
-    const direction = e.key === "ArrowRight" ? 1 : -1;
-    nudgePlayhead(direction * stepSec);
-    return;
-  }
-
-  if(e.key === "," || e.key === "."){
-    e.preventDefault();
-    const direction = e.key === "." ? 1 : -1;
-    const stepSec = e.shiftKey ? 0.01 : 0.1;
-    nudgePlayhead(direction * stepSec);
-    return;
-  }
-
-  if(key === "home"){
-    e.preventDefault();
-    seekToRatio(0);
-    centerViewportOnPlayhead();
-    invalidateWaveformCache();
-    drawWaveform(activeBuffer());
-    return;
-  }
-
-  if(key === "end"){
-    e.preventDefault();
-    seekToRatio(1);
-    centerViewportOnPlayhead();
-    invalidateWaveformCache();
-    drawWaveform(activeBuffer());
-    return;
-  }
-});
-
-</script>
 <style>
 :root{
   --bg:#070b14;
@@ -1010,6 +881,18 @@ stopBtn.onclick=()=>{
 
 
 
+
+async function decodeBlobDirectly(blob){
+  ensureAudioContext();
+
+  if(audioContext.state === "suspended"){
+    try{ await audioContext.resume(); }catch(e){}
+  }
+
+  const arrayBuffer = await blob.arrayBuffer();
+  return await audioContext.decodeAudioData(arrayBuffer.slice(0));
+}
+
 async function decodeFileToAudioBuffer(file){
   ensureAudioContext();
 
@@ -1020,36 +903,57 @@ async function decodeFileToAudioBuffer(file){
     console.warn("Media probe failed. Continuing anyway.", e);
   }
 
+  // 1. MP4 / M4A / WAV / MP3など、ブラウザが直接読めるものは最優先で直接AudioBuffer化
   try{
-    const arrayBuffer = await file.arrayBuffer();
-    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const decoded = await decodeBlobDirectly(file);
     decoded._wavecutLoadMethod = "direct";
     decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
     return decoded;
   }catch(primaryError){
-    console.warn("Direct decode failed.", primaryError);
+    console.warn("Direct decode failed. Trying MOV/MP4 remux if applicable.", primaryError);
   }
 
-  if(shouldTryFfmpeg(file)){
+  // 2. iPhoneカメラロールMOV対策：WAV抽出より先にMOV→MP4 remuxを試す
+  if(shouldTryRemux(file)){
     try{
-      const decoded = await extractAudioWithFfmpeg(file);
-      decoded._wavecutLoadMethod = "ffmpeg-wasm";
-      decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
-      return decoded;
-    }catch(ffmpegError){
-      console.warn("ffmpeg.wasm extraction failed. Trying media capture fallback.", ffmpegError);
+      const remuxedMp4 = await remuxMovToMp4WithFfmpeg(file);
+
+      // 2-A. remux後MP4を直接AudioBuffer化
+      try{
+        const decoded = await decodeBlobDirectly(remuxedMp4);
+        decoded._wavecutLoadMethod = "mov-to-mp4-remux-direct";
+        decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
+        return decoded;
+      }catch(remuxDecodeError){
+        console.warn("Remuxed MP4 direct decode failed. Trying remuxed media capture.", remuxDecodeError);
+      }
+
+      // 2-B. remux後MP4をブラウザ再生経由でAudioBuffer化
+      try{
+        const remuxInfo = await probeMediaFile(remuxedMp4).catch(()=>mediaInfo);
+        const captured = await extractAudioViaPlayableMedia(remuxedMp4, remuxInfo || mediaInfo);
+        captured._wavecutLoadMethod = "mov-to-mp4-remux-media-capture";
+        captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+        return captured;
+      }catch(remuxCaptureError){
+        console.warn("Remuxed MP4 media capture failed.", remuxCaptureError);
+      }
+    }catch(remuxError){
+      console.warn("MOV to MP4 remux failed. Trying original media capture.", remuxError);
     }
   }
 
+  // 3. 最終フォールバック：元ファイルをブラウザ再生しながら音声キャプチャ
   const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
-  captured._wavecutLoadMethod = "media-capture";
+  captured._wavecutLoadMethod = "media-capture-original";
   captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
   return captured;
 }
 
-function shouldTryFfmpeg(file){
+function shouldTryRemux(file){
   const name = (file.name || "").toLowerCase();
   const type = (file.type || "").toLowerCase();
+
   return (
     type.includes("quicktime") ||
     type.includes("mp4") ||
@@ -1063,12 +967,15 @@ function shouldTryFfmpeg(file){
 async function loadFfmpeg(){
   if(ffmpegLoaded && ffmpegInstance) return ffmpegInstance;
 
-  if(!window.FFmpegWASM || !window.FFmpegUtil){
+  const ffmpegNS = window.FFmpegWASM || window.FFmpeg;
+  const utilNS = window.FFmpegUtil;
+
+  if(!ffmpegNS || !utilNS){
     throw new Error("ffmpeg.wasm library is not loaded");
   }
 
-  const { FFmpeg } = window.FFmpegWASM;
-  const { toBlobURL } = window.FFmpegUtil;
+  const { FFmpeg } = ffmpegNS;
+  const { toBlobURL } = utilNS;
 
   ffmpegInstance = new FFmpeg();
 
@@ -1080,18 +987,18 @@ async function loadFfmpeg(){
     const pct = Math.max(0, Math.min(100, Math.round((progress || 0) * 100)));
     fileStatus.classList.add("extracting");
     fileStatus.innerHTML =
-      `ffmpeg.wasmでMOV/MP4から音声WAVを抽出中... ${pct}%<br>` +
-      `動画部分は使わず、音声だけを取り出しています。<br>` +
-      `初回はffmpeg本体の読み込みで少し時間がかかります。`;
+      `MOVをMP4へremux中... ${pct}%<br>` +
+      `WAV抽出ではなく、まずMP4として読める形に変換しています。<br>` +
+      `<span class="ffmpeg-note">長い動画・4K動画はiPhoneのメモリ制限で失敗する場合があります。</span>`;
   });
 
-  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
   fileStatus.classList.add("extracting");
   fileStatus.innerHTML =
     `MOV対策エンジンを読み込み中...<br>` +
     `初回のみ時間がかかります。<br>` +
-    `<span class="ffmpeg-note">iPhoneではメモリ不足で失敗する場合があります。その場合は短い動画で試してください。</span>`;
+    `<span class="ffmpeg-note">今回はWAV抽出ではなく、まずMOV→MP4 remuxを試します。</span>`;
 
   await ffmpegInstance.load({
     coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
@@ -1102,7 +1009,7 @@ async function loadFfmpeg(){
   return ffmpegInstance;
 }
 
-async function extractAudioWithFfmpeg(file){
+async function remuxMovToMp4WithFfmpeg(file){
   ensureAudioContext();
 
   const ffmpeg = await loadFfmpeg();
@@ -1110,13 +1017,13 @@ async function extractAudioWithFfmpeg(file){
 
   const inputExt = getFileExt(file.name) || "mov";
   const inputName = `input.${inputExt}`;
-  const outputName = "wavecut_extracted.wav";
+  const outputName = "wavecut_remuxed.mp4";
 
   fileStatus.classList.add("extracting");
   fileStatus.innerHTML =
-    `MOV/MP4から音声だけを抽出しています...<br>` +
-    `出力形式：WAV / 非圧縮PCM<br>` +
-    `動画部分は除外されます。`;
+    `MOV→MP4 remuxを実行中...<br>` +
+    `再エンコードではなく、コンテナだけMP4へ入れ替えています。<br>` +
+    `<span class="ffmpeg-note">MP4なら読み込めるケースを狙ったiPhoneカメラロール対策です。</span>`;
 
   try{
     try{ await ffmpeg.deleteFile(inputName); }catch(e){}
@@ -1124,23 +1031,44 @@ async function extractAudioWithFfmpeg(file){
 
     await ffmpeg.writeFile(inputName, await fetchFile(file));
 
-    await ffmpeg.exec([
-      "-i", inputName,
-      "-vn",
-      "-acodec", "pcm_s16le",
-      "-ar", "44100",
-      "-ac", "2",
-      outputName
-    ]);
+    // 第1候補：映像・音声をコピーしてMP4へremux
+    // ここで成功すれば「MOVの入れ物が原因で読めない」ケースを回避できる可能性があります。
+    try{
+      await ffmpeg.exec([
+        "-i", inputName,
+        "-map", "0",
+        "-c", "copy",
+        "-movflags", "+faststart",
+        outputName
+      ]);
+    }catch(fullRemuxError){
+      console.warn("Full MOV->MP4 remux failed. Trying audio-only copy remux.", fullRemuxError);
 
-    const wavData = await ffmpeg.readFile(outputName);
-    const wavBuffer = wavData.buffer.slice(wavData.byteOffset, wavData.byteOffset + wavData.byteLength);
-    const decoded = await audioContext.decodeAudioData(wavBuffer.slice(0));
+      try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+
+      // 第2候補：音声だけをコピーしてMP4へ
+      // iPhoneのMOV音声がAACなら成功する可能性が高いです。
+      await ffmpeg.exec([
+        "-i", inputName,
+        "-map", "0:a:0",
+        "-vn",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        outputName
+      ]);
+    }
+
+    const mp4Data = await ffmpeg.readFile(outputName);
+    const mp4Buffer = mp4Data.buffer.slice(
+      mp4Data.byteOffset,
+      mp4Data.byteOffset + mp4Data.byteLength
+    );
+    const mp4Blob = new Blob([mp4Buffer], { type:"video/mp4" });
 
     try{ await ffmpeg.deleteFile(inputName); }catch(e){}
     try{ await ffmpeg.deleteFile(outputName); }catch(e){}
 
-    return decoded;
+    return mp4Blob;
   }catch(err){
     try{ await ffmpeg.deleteFile(inputName); }catch(e){}
     try{ await ffmpeg.deleteFile(outputName); }catch(e){}
@@ -1152,6 +1080,7 @@ function getFileExt(name){
   if(!name || !name.includes(".")) return "";
   return name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+
 
 function probeMediaFile(file){
   return new Promise((resolve, reject)=>{
@@ -1337,7 +1266,7 @@ fileInput.onchange = async(e)=>{
 
   try{
     fileStatus.classList.add("extracting");
-    fileStatus.innerHTML = "読み込み中...<br>MOV/MP4の場合は、必要に応じてffmpeg.wasmで音声WAVを抽出します。";
+    fileStatus.innerHTML = "読み込み中...<br>MOVの場合は、まずMP4 remuxを試します。MP4化後にAudioBuffer化します。";
 
     const decoded = await decodeFileToAudioBuffer(file);
 
@@ -1379,7 +1308,7 @@ fileInput.onchange = async(e)=>{
 
   }catch(err){
     fileStatus.classList.remove("extracting");
-    alert("このファイルから音声を読み込めませんでした。MOV対策としてffmpeg.wasm抽出も試しましたが、端末のメモリ不足・Safari制限・ファイル破損などで失敗した可能性があります。短い動画、またはMP4/H.264/AACで再書き出しして試してください。");
+    alert("このファイルから音声を読み込めませんでした。MOV→MP4 remux、remux後のAudioBuffer化、ブラウザ再生キャプチャを試しましたが失敗しました。端末のメモリ不足・Safari制限・MOV内部コーデック・ファイル破損の可能性があります。短い動画、またはMP4/H.264/AACで再書き出しして試してください。");
     console.error(err);
   }
 
@@ -1430,7 +1359,13 @@ function setFileStatus(file, targetText, decoded){
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
   let methodText = "読み込み方式：直接デコード";
-  if(decoded._wavecutLoadMethod === "media-capture"){
+  if(decoded._wavecutLoadMethod === "mov-to-mp4-remux-direct"){
+    methodText = "読み込み方式：MOV→MP4 remux後、直接AudioBuffer化";
+  }else if(decoded._wavecutLoadMethod === "mov-to-mp4-remux-media-capture"){
+    methodText = "読み込み方式：MOV→MP4 remux後、ブラウザ再生経由でAudioBuffer化";
+  }else if(decoded._wavecutLoadMethod === "media-capture-original"){
+    methodText = "読み込み方式：元ファイルをブラウザ再生経由で音声抽出";
+  }else if(decoded._wavecutLoadMethod === "media-capture"){
     methodText = "読み込み方式：ブラウザ再生経由で音声抽出";
   }else if(decoded._wavecutLoadMethod === "ffmpeg-wasm"){
     methodText = "読み込み方式：ffmpeg.wasmでMOV/MP4からWAV音声抽出";
@@ -1442,7 +1377,7 @@ function setFileStatus(file, targetText, decoded){
     conversionMessage =
       `✅ 音声抽出完了<br>` +
       `✅ 動画部分は除外済み<br>` +
-      `✅ 必要に応じてMOV/MP4からWAV音声へ変換済み<br>` +
+      `✅ 必要に応じてMOV→MP4 remux後に音声化済み<br>` +
       `現在は「音声のみ」を編集中`;
   }else{
     conversionMessage =
