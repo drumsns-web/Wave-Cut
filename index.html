@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut v30 MOV Simple Capture</title>
+<title>WaveCut v31 Capture Progress</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-title" content="WaveCut">
@@ -402,6 +402,60 @@ audio{width:100%;margin:8px 0}
   padding:10px;
   margin-top:8px;
 }
+
+.capture-progress-wrap{
+  margin:12px 0 4px;
+  background:rgba(15,23,42,.95);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:16px;
+  padding:10px;
+}
+.capture-progress-top{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  font-size:12px;
+  color:#cbd5e1;
+  margin-bottom:8px;
+}
+.capture-progress-bar{
+  width:100%;
+  height:18px;
+  border-radius:999px;
+  background:rgba(255,255,255,.10);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12);
+}
+.capture-progress-fill{
+  width:0%;
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#35e0a1,#4f8cff);
+  transition:width .15s linear;
+}
+.capture-progress-time{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-top:8px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12px;
+  color:#f8fafc;
+}
+.capture-progress-time div{
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:10px;
+  padding:7px;
+  text-align:center;
+}
+.capture-progress-note{
+  margin-top:8px;
+  font-size:12px;
+  color:#fbbf24;
+  line-height:1.5;
+}
+
 .small{
   font-size:12px;
   color:var(--muted);
@@ -412,7 +466,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v30 動画音声取り込み対応</div>
+  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v31 抽出進行バー対応</div>
 </header>
 
 <main>
@@ -1159,6 +1213,9 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     let finishingNow = false;
     let pageWasHidden = false;
     let listenDuringCapture = false;
+    let progressTimer = null;
+    let lastKnownCurrent = 0;
+    let lastKnownDuration = mediaInfo?.duration || 0;
 
     let source = null;
     let processor = null;
@@ -1174,6 +1231,30 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       `動画から音声を取り込む準備ができました。<br>` +
       `下で「無音」または「聴きながら」を選び、「最後まで取り込む」を押してください。<br>` +
       `必要なところまで来たら「ここまでで抽出確定」も使えます。`;
+
+    const progressWrap = document.createElement("div");
+    progressWrap.className = "capture-progress-wrap";
+    progressWrap.style.display = "none";
+    progressWrap.innerHTML = `
+      <div class="capture-progress-top">
+        <span id="captureProgressMode">待機中</span>
+        <strong id="captureProgressPercent">0%</strong>
+      </div>
+      <div class="capture-progress-bar">
+        <div id="captureProgressFill" class="capture-progress-fill"></div>
+      </div>
+      <div class="capture-progress-time">
+        <div>現在<br><strong id="captureProgressCurrent">00:00.00</strong></div>
+        <div>残り<br><strong id="captureProgressRemain">--:--</strong></div>
+      </div>
+      <div class="capture-progress-time">
+        <div>全体<br><strong id="captureProgressTotal">--:--</strong></div>
+        <div>状態<br><strong id="captureProgressState">未開始</strong></div>
+      </div>
+      <div class="capture-progress-note" id="captureProgressNote">
+        抽出を開始すると、ここに進行状況が表示されます。
+      </div>
+    `;
 
     const modeWrap = document.createElement("div");
     modeWrap.className = "row";
@@ -1217,6 +1298,70 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       `開始後は誤操作防止のため、他の操作ボタンを一時ロックします。`;
 
     let lockedElements = [];
+
+    const q = (id)=>progressWrap.querySelector("#" + id);
+
+    const updateProgress = (stateText)=>{
+      const duration = media.duration || lastKnownDuration || mediaInfo?.duration || 0;
+      const current = media.currentTime || lastKnownCurrent || 0;
+
+      if(duration && isFinite(duration)) lastKnownDuration = duration;
+      if(current && isFinite(current)) lastKnownCurrent = current;
+
+      const safeDuration = lastKnownDuration || 0;
+      const safeCurrent = Math.min(safeDuration || current, current || 0);
+      const pct = safeDuration ? Math.max(0, Math.min(100, Math.round((safeCurrent / safeDuration) * 100))) : 0;
+      const remain = safeDuration ? Math.max(0, safeDuration - safeCurrent) : 0;
+
+      const fill = q("captureProgressFill");
+      const percent = q("captureProgressPercent");
+      const currentEl = q("captureProgressCurrent");
+      const remainEl = q("captureProgressRemain");
+      const totalEl = q("captureProgressTotal");
+      const modeEl = q("captureProgressMode");
+      const stateEl = q("captureProgressState");
+      const noteEl = q("captureProgressNote");
+
+      if(fill) fill.style.width = `${pct}%`;
+      if(percent) percent.textContent = `${pct}%`;
+      if(currentEl) currentEl.textContent = formatTimeMs(safeCurrent);
+      if(remainEl) remainEl.textContent = safeDuration ? formatTime(remain) : "--:--";
+      if(totalEl) totalEl.textContent = safeDuration ? formatTime(safeDuration) : "--:--";
+      if(modeEl) modeEl.textContent = listenDuringCapture ? "聴きながら抽出中" : "無音で抽出中";
+      if(stateEl) stateEl.textContent = stateText || (completed ? "完了" : started ? "取り込み中" : "未開始");
+
+      if(noteEl){
+        if(pageWasHidden){
+          noteEl.innerHTML = `⚠️ 途中でページが非表示になりました。音切れ・途中欠落の可能性があります。`;
+        }else if(started && !completed){
+          noteEl.innerHTML = `完了までこの画面を開いたままにしてください。必要なところまで来たら「ここまでで抽出確定」を押せます。`;
+        }else{
+          noteEl.innerHTML = `抽出を開始すると、ここに進行状況が表示されます。`;
+        }
+      }
+
+      if(started && !completed){
+        panel.innerHTML =
+          `動画から音声取り込み中... ${pct}%<br>` +
+          `${formatTimeMs(safeCurrent)} / ${safeDuration ? formatTimeMs(safeDuration) : "--:--"}<br>` +
+          `残り目安：${safeDuration ? formatTime(remain) : "--:--"}<br>` +
+          `${listenDuringCapture ? "聴きながら抽出中" : "無音で抽出中"}`;
+      }
+    };
+
+    const startProgressTimer = ()=>{
+      progressWrap.style.display = "block";
+      updateProgress("取り込み中");
+      stopProgressTimer();
+      progressTimer = setInterval(()=>updateProgress("取り込み中"), 250);
+    };
+
+    const stopProgressTimer = ()=>{
+      if(progressTimer){
+        clearInterval(progressTimer);
+        progressTimer = null;
+      }
+    };
 
     const updateModeButtons = ()=>{
       if(listenDuringCapture){
@@ -1283,10 +1428,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     const visibilityHandler = ()=>{
       if(started && !completed && document.hidden){
         pageWasHidden = true;
-        panel.innerHTML =
-          `⚠️ ページが非表示になりました。<br>` +
-          `抽出が止まったり、音切れ・途中欠落が起きた可能性があります。<br>` +
-          `完了しても音源を確認してください。`;
+        updateProgress("注意");
       }
     };
 
@@ -1294,7 +1436,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       const totalLength = chunks[0].reduce((sum, arr)=>sum + arr.length, 0);
 
       if(totalLength === 0){
-        throw new Error("no audio samples were captured from iPhone MOV");
+        throw new Error("no audio samples were captured from video");
       }
 
       const buffer = audioContext.createBuffer(channels, totalLength, audioContext.sampleRate);
@@ -1323,6 +1465,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     };
 
     const cleanup = ()=>{
+      stopProgressTimer();
       document.removeEventListener("visibilitychange", visibilityHandler);
       setAppLocked(false);
 
@@ -1334,6 +1477,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       try{ URL.revokeObjectURL(url); }catch(e){}
       try{ media.remove(); }catch(e){}
       try{ panel.remove(); }catch(e){}
+      try{ progressWrap.remove(); }catch(e){}
       try{ modeWrap.remove(); }catch(e){}
       try{ startBtn.remove(); }catch(e){}
       try{ finishNowBtn.remove(); }catch(e){}
@@ -1344,6 +1488,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     fileStatus.classList.add("extracting");
     fileStatus.innerHTML = "";
     fileStatus.appendChild(panel);
+    fileStatus.appendChild(progressWrap);
     fileStatus.appendChild(modeWrap);
     fileStatus.appendChild(startBtn);
     fileStatus.appendChild(finishNowBtn);
@@ -1352,6 +1497,18 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     fileStatus.appendChild(media);
 
     updateModeButtons();
+
+    media.addEventListener("loadedmetadata", ()=>{
+      lastKnownDuration = media.duration || mediaInfo?.duration || 0;
+      if(progressWrap.style.display !== "none"){
+        updateProgress(started ? "取り込み中" : "未開始");
+      }
+    });
+
+    media.addEventListener("timeupdate", ()=>{
+      lastKnownCurrent = media.currentTime || lastKnownCurrent;
+      if(started && !completed) updateProgress("取り込み中");
+    });
 
     silentBtn.onclick = ()=>{
       if(started) return;
@@ -1367,18 +1524,19 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
 
     cancelBtn.onclick = ()=>{
       cleanup();
-      reject(new Error("user cancelled iPhone MOV extraction"));
+      reject(new Error("user cancelled video audio extraction"));
     };
 
     media.onerror = ()=>{
       cleanup();
-      reject(new Error("iPhone Safari could not play this MOV file"));
+      reject(new Error("Safari could not play this video file"));
     };
 
     const finishCapture = ()=>{
       if(!started || completed) return;
       finishingNow = true;
       completed = true;
+      updateProgress("途中確定");
 
       try{
         const buffer = buildBufferFromChunks();
@@ -1406,7 +1564,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       const modeText = listenDuringCapture ? "聴きながら取り込み" : "無音取り込み";
 
       const ok = confirm(
-        `MOVの音声を取り込みます。\n\n` +
+        `動画の音声を取り込みます。\n\n` +
         `現在の設定：${modeText}\n\n` +
         "注意：抽出中は以下をしないでください。\n" +
         "・他のタブへ切り替える\n" +
@@ -1429,13 +1587,13 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       listenBtn.disabled = true;
       finishNowBtn.disabled = false;
 
-      // 「最後まで取り込む」中にユーザーが動画を止めてしまうミスを減らす
+      // 取り込み中は動画側の操作で止めてしまわないよう、ブラウザ標準コントロールを隠す
       media.controls = false;
 
       lockNotice.innerHTML =
         `🔒 取り込み中です。完了までこの画面のままお待ちください。<br>` +
-        `必要なところまで来たら「ここまでで抽出確定」を押せます。<br>` +
-        `他のタブ・別アプリ・画面ロックは避けてください。`;
+        `進行状況は上のバーで確認できます。<br>` +
+        `必要なところまで来たら「ここまでで抽出確定」を押せます。`;
 
       try{
         if(audioContext.state === "suspended"){
@@ -1445,11 +1603,9 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         source = audioContext.createMediaElementSource(media);
         processor = audioContext.createScriptProcessor(4096, channels, channels);
 
-        // ScriptProcessorを確実に動かすための無音接続
         silentGain = audioContext.createGain();
         silentGain.gain.value = 0;
 
-        // 聴きながら取り込む用のモニター接続
         monitorGain = audioContext.createGain();
         monitorGain.gain.value = listenDuringCapture ? 1 : 0;
 
@@ -1471,20 +1627,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
             chunks[ch].push(new Float32Array(data));
           }
 
-          const duration = media.duration || mediaInfo?.duration;
-          if(duration && isFinite(duration)){
-            const pct = Math.min(100, Math.round((media.currentTime / duration) * 100));
-            const soundMode = listenDuringCapture ? "聴きながら抽出中" : "無音で抽出中";
-            const hiddenWarning = pageWasHidden
-              ? `<br><span style="color:#fca5a5">⚠️ 途中でページが非表示になりました。音切れの可能性があります。</span>`
-              : "";
-
-            panel.innerHTML =
-              `動画から音声取り込み中... ${pct}%<br>` +
-              `${formatTime(media.currentTime)} / ${formatTime(duration)}<br>` +
-              `${soundMode}<br>` +
-              `途中で止めたい場合は「ここまでで抽出確定」を押してください。${hiddenWarning}`;
-          }
+          updateProgress("取り込み中");
         };
 
         media.onpause = ()=>{
@@ -1493,6 +1636,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
 
           if(started && !completed && !nearEnd){
             pageWasHidden = true;
+            updateProgress("停止検知");
             panel.innerHTML =
               `⚠️ 再生が途中で停止しました。<br>` +
               `着信・画面ロック・タブ切り替え・誤操作の影響で抽出が中断した可能性があります。<br>` +
@@ -1503,6 +1647,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         media.onended = ()=>{
           if(completed) return;
           completed = true;
+          updateProgress("完了");
 
           try{
             const buffer = buildBufferFromChunks();
@@ -1515,12 +1660,11 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         };
 
         media.currentTime = 0;
-
-        // iPhoneで音が出ない場合を避けるため、再生直前にも状態を明示
         media.muted = false;
         media.volume = 1;
         if(monitorGain) monitorGain.gain.value = listenDuringCapture ? 1 : 0;
 
+        startProgressTimer();
         await media.play();
       }catch(err){
         cleanup();
