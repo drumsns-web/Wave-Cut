@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut v33 Stable MOV Capture</title>
+<title>WaveCut v35 Mic Guide</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-title" content="WaveCut">
@@ -466,7 +466,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v33 安定取り込み方式</div>
+  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v35 安定取り込み方式</div>
 </header>
 
 <main>
@@ -475,7 +475,16 @@ audio{width:100%;margin:8px 0}
   <p class="section-title">Input <span class="pill">Mic</span></p>
   <label>入力マイク</label>
   <select id="micSelect"></select>
+  <div class="row">
+    <button id="micOnBtn" class="green">マイクON</button>
+    <button id="micOffBtn" class="red" disabled>マイクOFF</button>
+  </div>
   <button id="refreshMicBtn">マイク一覧を更新</button>
+  <div id="micStatus" class="info">マイク：OFF（録音時に自動でONになります）</div>
+  <div class="info">
+    録音の頭切れを防ぎたい場合は、先に「マイクON」を押してから録音開始してください。<br>
+    プライバシー重視の場合は、OFFのままでも録音開始時に自動でONになり、録音停止後に自動でOFFになります。
+  </div>
 
   <label>録音チャンネル</label>
   <select id="channelSelect">
@@ -664,6 +673,9 @@ let ffmpegLoaded = false;
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
+const micOnBtn = document.getElementById("micOnBtn");
+const micOffBtn = document.getElementById("micOffBtn");
+const micStatus = document.getElementById("micStatus");
 const channelSelect = document.getElementById("channelSelect");
 const recordTarget = document.getElementById("recordTarget");
 const fileTarget = document.getElementById("fileTarget");
@@ -822,24 +834,123 @@ window.addEventListener("resize",()=>{
   updateTimeLabel(activeBuffer());
 });
 
-async function loadMics(){
+function updateMicStatus(isOn, message){
+  if(!micStatus) return;
+  micStatus.textContent = message || (isOn ? "マイク：ON" : "マイク：OFF（録音時に自動でONになります）");
+  micStatus.style.color = isOn ? "var(--green)" : "var(--muted)";
+  if(micOnBtn) micOnBtn.disabled = isOn;
+  if(micOffBtn) micOffBtn.disabled = !isOn;
+}
+
+function stopCurrentMicStream(){
+  if(currentStream){
+    try{
+      currentStream.getTracks().forEach(track=>track.stop());
+    }catch(e){
+      console.warn("mic stop failed", e);
+    }
+    currentStream = null;
+  }
+  updateMicStatus(false, "マイク：OFF（録音時に自動でONになります）");
+}
+
+async function ensureMicStream(){
+  ensureAudioContext();
+
+  if(currentStream && currentStream.getAudioTracks().some(t=>t.readyState === "live")){
+    updateMicStatus(true, "マイク：ON");
+    return currentStream;
+  }
+
+  const channelCount = Number(channelSelect.value);
+  const deviceId = micSelect.value;
+
+  const constraints = {
+    audio:{
+      deviceId: deviceId ? {exact: deviceId} : undefined,
+      channelCount: channelCount,
+      echoCancellation:false,
+      noiseSuppression:false,
+      autoGainControl:false
+    }
+  };
+
+  updateMicStatus(false, "マイクを起動中...");
+  currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+  updateMicStatus(true, "マイク：ON");
+
+  // 権限取得後ならラベル付きで一覧を更新できる
+  await loadMics(false).catch(()=>{});
+
+  return currentStream;
+}
+
+async function loadMics(requestPermission=false){
   try{
-    await navigator.mediaDevices.getUserMedia({audio:true});
+    if(requestPermission){
+      const tempStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      tempStream.getTracks().forEach(t=>t.stop());
+    }
+
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter(d=>d.kind==="audioinput");
+
+    const currentValue = micSelect.value;
     micSelect.innerHTML = "";
+
     inputs.forEach((device,index)=>{
       const opt = document.createElement("option");
       opt.value = device.deviceId;
       opt.textContent = device.label || `マイク ${index + 1}`;
       micSelect.appendChild(opt);
     });
+
+    if(currentValue && Array.from(micSelect.options).some(o=>o.value === currentValue)){
+      micSelect.value = currentValue;
+    }
+
+    if(inputs.length === 0){
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "マイク未検出";
+      micSelect.appendChild(opt);
+    }
   }catch(e){
     alert("マイク権限が必要です: " + e.message);
+    updateMicStatus(false, "マイク：OFF");
   }
 }
-refreshMicBtn.onclick = loadMics;
-window.addEventListener("load", loadMics);
+
+micOnBtn.onclick = async()=>{
+  try{
+    await ensureMicStream();
+  }catch(e){
+    alert("マイクをONにできませんでした: " + e.message);
+    updateMicStatus(false, "マイク：OFF");
+  }
+};
+
+micOffBtn.onclick = ()=>{
+  if(mediaRecorder && mediaRecorder.state === "recording"){
+    alert("録音中はマイクOFFにできません。先に録音を停止してください。");
+    return;
+  }
+  stopCurrentMicStream();
+};
+
+refreshMicBtn.onclick = async()=>{
+  // マイク一覧更新だけなら原則マイクはONにしない。
+  // ラベルが空の場合のみ、必要に応じてユーザーがマイクONを押す。
+  await loadMics(false);
+};
+
+// ページを開いただけではマイクをONにしない。
+// 権限がある場合のみ、ラベルなし/ありの範囲で一覧を取得する。
+window.addEventListener("load", ()=>{
+  loadMics(false).catch(()=>{});
+  updateMicStatus(false, "マイク：OFF（録音時に自動でONになります）");
+});
+
 
 function clearSelectionAndPreview(){
   selectedStart = null;
@@ -895,20 +1006,14 @@ recordBtn.onclick = async()=>{
   selectedEnd=null;
   playheadRatio=0;
 
-  const channelCount = Number(channelSelect.value);
-  const deviceId = micSelect.value;
+  try{
+    currentStream = await ensureMicStream();
+  }catch(e){
+    alert("録音のためにマイクをONにできませんでした: " + e.message);
+    stopCurrentMicStream();
+    return;
+  }
 
-  const constraints = {
-    audio:{
-      deviceId: deviceId ? {exact: deviceId} : undefined,
-      channelCount: channelCount,
-      echoCancellation:false,
-      noiseSuppression:false,
-      autoGainControl:false
-    }
-  };
-
-  currentStream = await navigator.mediaDevices.getUserMedia(constraints);
   mediaRecorder = new MediaRecorder(currentStream);
 
   mediaRecorder.ondataavailable = e=>{
@@ -916,30 +1021,36 @@ recordBtn.onclick = async()=>{
   };
 
   mediaRecorder.onstop = async()=>{
-    const blob = new Blob(recordedChunks,{type:mediaRecorder.mimeType});
-    const arrayBuffer = await blob.arrayBuffer();
-    const decoded = await audioContext.decodeAudioData(arrayBuffer);
+    try{
+      const blob = new Blob(recordedChunks,{type:mediaRecorder.mimeType});
+      const arrayBuffer = await blob.arrayBuffer();
+      const decoded = await audioContext.decodeAudioData(arrayBuffer);
 
-    if(recordTarget.value === "take"){
-      takeBuffer = decoded;
-      takeFxBaked = false;
-      takeFxBackup = null;
-      activeBufferType = "take";
-      fileStatus.textContent = `追加録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
-    }else{
-      mainBuffer = decoded;
-      mainFxBaked = false;
-      mainFxBackup = null;
-      activeBufferType = "main";
-      fileStatus.textContent = `メイン録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
+      if(recordTarget.value === "take"){
+        takeBuffer = decoded;
+        takeFxBaked = false;
+        takeFxBackup = null;
+        activeBufferType = "take";
+        fileStatus.textContent = `追加録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
+      }else{
+        mainBuffer = decoded;
+        mainFxBaked = false;
+        mainFxBackup = null;
+        activeBufferType = "main";
+        fileStatus.textContent = `メイン録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
+      }
+
+      invalidateWaveformCache();
+      playheadRatio=0;
+      resetFx();
+      refreshPreview();
+      updateButtons();
+    }catch(err){
+      alert("録音データの読み込みに失敗しました: " + err.message);
+      console.error(err);
+    }finally{
+      stopCurrentMicStream();
     }
-
-    currentStream.getTracks().forEach(t=>t.stop());
-    invalidateWaveformCache();
-    playheadRatio=0;
-    resetFx();
-    refreshPreview();
-    updateButtons();
   };
 
   mediaRecorder.start();
@@ -947,10 +1058,13 @@ recordBtn.onclick = async()=>{
   stopBtn.disabled=false;
   recordBtn.textContent="録音中...";
   recordBtn.classList.add("red");
+  updateMicStatus(true, "マイク：ON / 録音中");
 };
 
 stopBtn.onclick=()=>{
-  mediaRecorder.stop();
+  if(mediaRecorder && mediaRecorder.state === "recording"){
+    mediaRecorder.stop();
+  }
   recordBtn.disabled=false;
   stopBtn.disabled=true;
   recordBtn.textContent="録音開始";
