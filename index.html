@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut v31 Capture Progress</title>
+<title>WaveCut v32 FX Reset</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-title" content="WaveCut">
@@ -466,7 +466,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v31 抽出進行バー対応</div>
+  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v32 エフェクトリセット対応</div>
 </header>
 
 <main>
@@ -603,8 +603,11 @@ audio{width:100%;margin:8px 0}
   <label>Radio Voice：<span id="radioValue">0%</span></label>
   <input id="radioSlider" type="range" min="0" max="100" step="1" value="0">
 
-  <button id="applyFxBtn" disabled class="orange">エフェクトを音源に反映</button>
-  <p class="small">スライダーはプレビュー保存時にも反映されます。「反映」を押すと波形編集データ自体に焼き込みます。</p>
+  <div class="row">
+    <button id="applyFxBtn" disabled class="orange">エフェクトを音源に反映</button>
+    <button id="resetFxBtn" disabled>エフェクトリセット</button>
+  </div>
+  <p class="small">「エフェクトリセット」は、スライダーを0に戻します。反映済みの場合は、直前のエフェクト反映前の音源へ戻します。</p>
 </section>
 
 <section class="card">
@@ -644,6 +647,8 @@ let takeBuffer = null;
 let activeBufferType = "main";
 let mainFxBaked = false;
 let takeFxBaked = false;
+let mainFxBackup = null;
+let takeFxBackup = null;
 let selectedStart = null;
 let selectedEnd = null;
 let playheadRatio = 0;
@@ -681,6 +686,7 @@ const trimBtn = document.getElementById("trimBtn");
 const saveWavBtn = document.getElementById("saveWavBtn");
 const saveMp3Btn = document.getElementById("saveMp3Btn");
 const applyFxBtn = document.getElementById("applyFxBtn");
+const resetFxBtn = document.getElementById("resetFxBtn");
 const selectMainBtn = document.getElementById("selectMainBtn");
 const selectTakeBtn = document.getElementById("selectTakeBtn");
 const prependTakeBtn = document.getElementById("prependTakeBtn");
@@ -729,6 +735,20 @@ function isActiveFxBaked(){
 function setActiveFxBaked(value){
   if(activeBufferType === "take") takeFxBaked = value;
   else mainFxBaked = value;
+}
+
+function getActiveFxBackup(){
+  return activeBufferType === "take" ? takeFxBackup : mainFxBackup;
+}
+
+function setActiveFxBackup(buffer){
+  if(activeBufferType === "take") takeFxBackup = buffer;
+  else mainFxBackup = buffer;
+}
+
+function clearActiveFxBackup(){
+  if(activeBufferType === "take") takeFxBackup = null;
+  else mainFxBackup = null;
 }
 
 function clearActiveFxBaked(){
@@ -838,6 +858,7 @@ deleteMainBtn.onclick = ()=>{
   if(!confirm("メイン音源を削除しますか？")) return;
   mainBuffer = null;
   mainFxBaked = false;
+  mainFxBackup = null;
   if(activeBufferType === "main"){
     activeBufferType = takeBuffer ? "take" : "main";
   }
@@ -854,6 +875,7 @@ deleteTakeBtn.onclick = ()=>{
   if(!confirm("追加録音を削除しますか？")) return;
   takeBuffer = null;
   takeFxBaked = false;
+  takeFxBackup = null;
   if(activeBufferType === "take"){
     activeBufferType = "main";
   }
@@ -900,11 +922,13 @@ recordBtn.onclick = async()=>{
     if(recordTarget.value === "take"){
       takeBuffer = decoded;
       takeFxBaked = false;
+      takeFxBackup = null;
       activeBufferType = "take";
       fileStatus.textContent = `追加録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
     }else{
       mainBuffer = decoded;
       mainFxBaked = false;
+      mainFxBackup = null;
       activeBufferType = "main";
       fileStatus.textContent = `メイン録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
     }
@@ -1840,11 +1864,13 @@ fileInput.onchange = async(e)=>{
     }else if(fileTarget.value === "take"){
       takeBuffer = decoded;
       takeFxBaked = false;
+      takeFxBackup = null;
       activeBufferType = "take";
       targetText = "追加音源として読み込み";
     }else{
       mainBuffer = decoded;
       mainFxBaked = false;
+      mainFxBackup = null;
       activeBufferType = "main";
       targetText = "メイン音源を置き換え";
     }
@@ -1885,6 +1911,7 @@ function updateButtons(){
   deleteMainBtn.disabled = !mainBuffer;
   deleteTakeBtn.disabled = !takeBuffer;
   applyFxBtn.disabled = !hasActive;
+  resetFxBtn.disabled = !hasActive;
   selectMainBtn.disabled = !mainBuffer;
   selectTakeBtn.disabled = !takeBuffer;
   prependTakeBtn.disabled = !(mainBuffer && takeBuffer);
@@ -1967,7 +1994,11 @@ function setFileStatus(file, targetText, decoded){
 }
 
 function resetFx(){
-  gainSlider.value=0; reverbSlider.value=0; delaySlider.value=0; doubleSlider.value=0; radioSlider.value=0;
+  gainSlider.value=0;
+  reverbSlider.value=0;
+  delaySlider.value=0;
+  doubleSlider.value=0;
+  radioSlider.value=0;
   updateFxLabels();
 }
 
@@ -2160,11 +2191,53 @@ applyFxBtn.onclick = async()=>{
     alert("この音源にはすでに現在のエフェクトが反映されています。二重がけを防ぐため、もう一度反映する場合はスライダーを変更してから操作してください。");
     return;
   }
+
+  // エフェクト反映前の音源を保存しておく。
+  // これにより、反映後でも「エフェクトリセット」で直前の状態へ戻せる。
+  setActiveFxBackup(cloneBuffer(buffer));
+
   const processed = await processEffects(buffer);
   setActiveBuffer(processed);
   setActiveFxBaked(true);
   refreshPreview();
   updateButtons();
+};
+
+resetFxBtn.onclick = async()=>{
+  const buffer = activeBuffer();
+  if(!buffer) return;
+
+  const backup = getActiveFxBackup();
+
+  // 反映済みのエフェクトがある場合は、直前の反映前音源へ戻す。
+  if(isActiveFxBaked() && backup){
+    setActiveBuffer(cloneBuffer(backup));
+    clearActiveFxBackup();
+    setActiveFxBaked(false);
+    resetFx();
+    selectedStart = null;
+    selectedEnd = null;
+    playheadRatio = 0;
+    viewportStart = 0;
+    clampViewport();
+    invalidateWaveformCache();
+    await refreshPreview();
+    updateButtons();
+    fileStatus.innerHTML =
+      `✅ エフェクト反映前の音源に戻しました。<br>` +
+      `Gain / Reverb / Delay / Double / Radio Voice はすべて0に戻しました。`;
+    return;
+  }
+
+  // まだ反映していない場合は、スライダーだけを0に戻す。
+  resetFx();
+  setActiveFxBaked(false);
+  invalidateWaveformCache();
+  await refreshPreview();
+  updateButtons();
+  fileStatus.innerHTML =
+    `✅ エフェクト設定をリセットしました。<br>` +
+    `Gain / Reverb / Delay / Double / Radio Voice はすべて0です。`;
 };
 
 selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
@@ -2176,6 +2249,8 @@ prependTakeBtn.onclick=()=>{
   invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
+  mainFxBackup = null;
+  takeFxBackup = null;
   activeBufferType="main";
   takeBuffer=null;
   playheadRatio=0;
@@ -2190,6 +2265,8 @@ appendTakeBtn.onclick=()=>{
   invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
+  mainFxBackup = null;
+  takeFxBackup = null;
   activeBufferType="main";
   takeBuffer=null;
   playheadRatio=0;
@@ -2204,6 +2281,8 @@ mixTakeBtn.onclick=()=>{
   invalidateWaveformCache();
   mainFxBaked = false;
   takeFxBaked = false;
+  mainFxBackup = null;
+  takeFxBackup = null;
   activeBufferType="main";
   takeBuffer=null;
   playheadRatio=0;
