@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut</title>
+<title>WaveCut v25 iPhone MOV</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-title" content="WaveCut">
@@ -412,7 +412,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合</div>
+  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v25 iPhone MOV手動抽出対応</div>
 </header>
 
 <main>
@@ -893,6 +893,19 @@ async function decodeBlobDirectly(blob){
   return await audioContext.decodeAudioData(arrayBuffer.slice(0));
 }
 
+function isIOSLikeDevice(){
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const isTouchMac = platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  return /iPad|iPhone|iPod/.test(ua) || isTouchMac;
+}
+
+function isProbablyMovFile(file){
+  const name = (file.name || "").toLowerCase();
+  const type = (file.type || "").toLowerCase();
+  return type.includes("quicktime") || name.endsWith(".mov");
+}
+
 async function decodeFileToAudioBuffer(file){
   ensureAudioContext();
 
@@ -910,15 +923,27 @@ async function decodeFileToAudioBuffer(file){
     decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
     return decoded;
   }catch(primaryError){
-    console.warn("Direct decode failed. Trying MOV/MP4 remux if applicable.", primaryError);
+    console.warn("Direct decode failed.", primaryError);
   }
 
-  // 2. iPhoneカメラロールMOV対策：WAV抽出より先にMOV→MP4 remuxを試す
+  // 2. iPhone SafariのMOVは、ffmpeg.wasmや自動playが失敗しやすいため、先にユーザータップ付きの再生キャプチャを試す
+  if(isIOSLikeDevice() && isProbablyMovFile(file)){
+    try{
+      const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+      captured._wavecutLoadMethod = "ios-user-tap-media-capture-original";
+      captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+      return captured;
+    }catch(userTapError){
+      console.warn("iOS user-tap media capture failed. Trying remux.", userTapError);
+    }
+  }
+
+  // 3. MOV/MP4系は、WAV抽出ではなくMOV→MP4 remuxを試す
   if(shouldTryRemux(file)){
     try{
       const remuxedMp4 = await remuxMovToMp4WithFfmpeg(file);
 
-      // 2-A. remux後MP4を直接AudioBuffer化
+      // 3-A. remux後MP4を直接AudioBuffer化
       try{
         const decoded = await decodeBlobDirectly(remuxedMp4);
         decoded._wavecutLoadMethod = "mov-to-mp4-remux-direct";
@@ -928,7 +953,20 @@ async function decodeFileToAudioBuffer(file){
         console.warn("Remuxed MP4 direct decode failed. Trying remuxed media capture.", remuxDecodeError);
       }
 
-      // 2-B. remux後MP4をブラウザ再生経由でAudioBuffer化
+      // 3-B. iPhoneではremux後もユーザータップ付きで再生キャプチャを試す
+      if(isIOSLikeDevice()){
+        try{
+          const remuxInfo = await probeMediaFile(remuxedMp4).catch(()=>mediaInfo);
+          const captured = await extractAudioViaUserTapMediaCapture(remuxedMp4, remuxInfo || mediaInfo);
+          captured._wavecutLoadMethod = "ios-user-tap-media-capture-remuxed";
+          captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+          return captured;
+        }catch(remuxUserTapError){
+          console.warn("Remuxed MP4 user-tap media capture failed.", remuxUserTapError);
+        }
+      }
+
+      // 3-C. 通常のブラウザ再生経由でAudioBuffer化
       try{
         const remuxInfo = await probeMediaFile(remuxedMp4).catch(()=>mediaInfo);
         const captured = await extractAudioViaPlayableMedia(remuxedMp4, remuxInfo || mediaInfo);
@@ -943,7 +981,14 @@ async function decodeFileToAudioBuffer(file){
     }
   }
 
-  // 3. 最終フォールバック：元ファイルをブラウザ再生しながら音声キャプチャ
+  // 4. 最終フォールバック
+  if(isIOSLikeDevice()){
+    const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+    captured._wavecutLoadMethod = "ios-user-tap-media-capture-final";
+    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+    return captured;
+  }
+
   const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
   captured._wavecutLoadMethod = "media-capture-original";
   captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
@@ -1120,6 +1165,151 @@ function probeMediaFile(file){
       cleanup();
       reject(new Error("media element cannot read this file"));
     };
+  });
+}
+
+
+function extractAudioViaUserTapMediaCapture(file, mediaInfo){
+  return new Promise((resolve, reject)=>{
+    ensureAudioContext();
+
+    const isAudio = file.type.startsWith("audio/");
+    const url = URL.createObjectURL(file);
+    const media = document.createElement(isAudio ? "audio" : "video");
+    media.src = url;
+    media.preload = "auto";
+    media.playsInline = true;
+    media.muted = false;
+    media.controls = true;
+    media.style.width = "100%";
+    media.style.maxHeight = "220px";
+    media.style.marginTop = "10px";
+    media.style.borderRadius = "14px";
+    media.style.background = "#000";
+
+    let started = false;
+    let source = null;
+    let processor = null;
+    let zeroGain = null;
+    const channels = 2;
+    const chunks = [[], []];
+
+    const panel = document.createElement("div");
+    panel.className = "ffmpeg-note";
+    panel.innerHTML =
+      `iPhone MOV用の手動抽出に切り替えました。<br>` +
+      `下のボタンを押すと動画を無音再生しながら音声を取り込みます。<br>` +
+      `動画の長さと同じくらい時間がかかります。`;
+
+    const startBtn = document.createElement("button");
+    startBtn.type = "button";
+    startBtn.className = "green";
+    startBtn.textContent = "iPhone MOVの音声抽出を開始";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "red";
+    cancelBtn.textContent = "キャンセル";
+
+    const cleanup = ()=>{
+      try{ if(processor) processor.disconnect(); }catch(e){}
+      try{ if(source) source.disconnect(); }catch(e){}
+      try{ if(zeroGain) zeroGain.disconnect(); }catch(e){}
+      try{ media.pause(); }catch(e){}
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      try{ media.remove(); }catch(e){}
+      try{ panel.remove(); }catch(e){}
+    };
+
+    fileStatus.classList.add("extracting");
+    fileStatus.innerHTML = "";
+    fileStatus.appendChild(panel);
+    fileStatus.appendChild(startBtn);
+    fileStatus.appendChild(cancelBtn);
+    fileStatus.appendChild(media);
+
+    cancelBtn.onclick = ()=>{
+      cleanup();
+      reject(new Error("user cancelled iPhone MOV extraction"));
+    };
+
+    media.onerror = ()=>{
+      cleanup();
+      reject(new Error("iPhone Safari could not play this MOV file"));
+    };
+
+    startBtn.onclick = async ()=>{
+      if(started) return;
+      started = true;
+      startBtn.disabled = true;
+      cancelBtn.disabled = true;
+
+      try{
+        if(audioContext.state === "suspended"){
+          await audioContext.resume();
+        }
+
+        source = audioContext.createMediaElementSource(media);
+        processor = audioContext.createScriptProcessor(4096, channels, channels);
+        zeroGain = audioContext.createGain();
+        zeroGain.gain.value = 0;
+
+        source.connect(processor);
+        processor.connect(zeroGain);
+        zeroGain.connect(audioContext.destination);
+
+        processor.onaudioprocess = (event)=>{
+          const input = event.inputBuffer;
+
+          for(let ch=0; ch<channels; ch++){
+            const sourceCh = Math.min(ch, input.numberOfChannels - 1);
+            const data = input.getChannelData(sourceCh);
+            chunks[ch].push(new Float32Array(data));
+          }
+
+          const duration = media.duration || mediaInfo?.duration;
+          if(duration && isFinite(duration)){
+            const pct = Math.min(100, Math.round((media.currentTime / duration) * 100));
+            panel.innerHTML =
+              `iPhone MOVから音声抽出中... ${pct}%<br>` +
+              `${formatTime(media.currentTime)} / ${formatTime(duration)}<br>` +
+              `この方式は動画を再生しながら音声だけを取り込みます。`;
+          }
+        };
+
+        media.onended = ()=>{
+          const totalLength = chunks[0].reduce((sum, arr)=>sum + arr.length, 0);
+
+          if(totalLength === 0){
+            cleanup();
+            reject(new Error("no audio samples were captured from iPhone MOV"));
+            return;
+          }
+
+          const buffer = audioContext.createBuffer(channels, totalLength, audioContext.sampleRate);
+
+          for(let ch=0; ch<channels; ch++){
+            const out = buffer.getChannelData(ch);
+            let offset = 0;
+            for(const arr of chunks[ch]){
+              out.set(arr, offset);
+              offset += arr.length;
+            }
+          }
+
+          cleanup();
+          resolve(buffer);
+        };
+
+        media.currentTime = 0;
+        await media.play();
+      }catch(err){
+        cleanup();
+        reject(err);
+      }
+    };
+
+    media.load();
   });
 }
 
