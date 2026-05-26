@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut v32 FX Reset</title>
+<title>WaveCut v33 Stable MOV Capture</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
 <meta name="apple-mobile-web-app-title" content="WaveCut">
@@ -466,7 +466,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v32 エフェクトリセット対応</div>
+  <div class="sub">1トラック録音・波形カット・エフェクト・追録結合 / v33 安定取り込み方式</div>
 </header>
 
 <main>
@@ -658,6 +658,7 @@ let animationFrameId = null;
 let waveformCache = null;
 let waveformCacheBuffer = null;
 let currentStream = null;
+let movWakeLock = null;
 let ffmpegInstance = null;
 let ffmpegLoaded = false;
 
@@ -1213,19 +1214,48 @@ function probeMediaFile(file){
 }
 
 
+// 取り込み中に画面が消えにくくする。対応端末のみ有効。
+async function requestMovWakeLock(){
+  try{
+    if("wakeLock" in navigator){
+      movWakeLock = await navigator.wakeLock.request("screen");
+      document.addEventListener("visibilitychange", reacquireMovWakeLock);
+    }
+  }catch(e){
+    console.warn("Wake Lock is not available or failed.", e);
+  }
+}
+
+async function reacquireMovWakeLock(){
+  try{
+    if(movWakeLock !== null && document.visibilityState === "visible" && "wakeLock" in navigator){
+      movWakeLock = await navigator.wakeLock.request("screen");
+    }
+  }catch(e){}
+}
+
+function releaseMovWakeLock(){
+  try{
+    document.removeEventListener("visibilitychange", reacquireMovWakeLock);
+    if(movWakeLock){
+      movWakeLock.release();
+      movWakeLock = null;
+    }
+  }catch(e){}
+}
+
 function extractAudioViaUserTapMediaCapture(file, mediaInfo){
   return new Promise((resolve, reject)=>{
-    ensureAudioContext();
-
     const isAudio = file.type.startsWith("audio/");
     const url = URL.createObjectURL(file);
     const media = document.createElement(isAudio ? "audio" : "video");
+
     media.src = url;
     media.preload = "auto";
     media.playsInline = true;
     media.muted = false;
     media.volume = 1;
-    media.controls = true;
+    media.controls = false;
     media.style.width = "100%";
     media.style.maxHeight = "220px";
     media.style.marginTop = "10px";
@@ -1235,16 +1265,14 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     let started = false;
     let completed = false;
     let finishingNow = false;
-    let pageWasHidden = false;
     let listenDuringCapture = false;
     let progressTimer = null;
-    let lastKnownCurrent = 0;
-    let lastKnownDuration = mediaInfo?.duration || 0;
-
+    let localCtx = null;
     let source = null;
     let processor = null;
-    let silentGain = null;
-    let monitorGain = null;
+    let playGain = null;
+    let lastKnownCurrent = 0;
+    let lastKnownDuration = mediaInfo?.duration || 0;
 
     const channels = 2;
     const chunks = [[], []];
@@ -1333,7 +1361,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       if(current && isFinite(current)) lastKnownCurrent = current;
 
       const safeDuration = lastKnownDuration || 0;
-      const safeCurrent = Math.min(safeDuration || current, current || 0);
+      const safeCurrent = safeDuration ? Math.min(safeDuration, current || 0) : (current || 0);
       const pct = safeDuration ? Math.max(0, Math.min(100, Math.round((safeCurrent / safeDuration) * 100))) : 0;
       const remain = safeDuration ? Math.max(0, safeDuration - safeCurrent) : 0;
 
@@ -1355,13 +1383,9 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       if(stateEl) stateEl.textContent = stateText || (completed ? "完了" : started ? "取り込み中" : "未開始");
 
       if(noteEl){
-        if(pageWasHidden){
-          noteEl.innerHTML = `⚠️ 途中でページが非表示になりました。音切れ・途中欠落の可能性があります。`;
-        }else if(started && !completed){
-          noteEl.innerHTML = `完了までこの画面を開いたままにしてください。必要なところまで来たら「ここまでで抽出確定」を押せます。`;
-        }else{
-          noteEl.innerHTML = `抽出を開始すると、ここに進行状況が表示されます。`;
-        }
+        noteEl.innerHTML = started && !completed
+          ? `完了までこの画面を開いたままにしてください。必要なところまで来たら「ここまでで抽出確定」を押せます。`
+          : `抽出を開始すると、ここに進行状況が表示されます。`;
       }
 
       if(started && !completed){
@@ -1449,13 +1473,6 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       }
     };
 
-    const visibilityHandler = ()=>{
-      if(started && !completed && document.hidden){
-        pageWasHidden = true;
-        updateProgress("注意");
-      }
-    };
-
     const buildBufferFromChunks = ()=>{
       const totalLength = chunks[0].reduce((sum, arr)=>sum + arr.length, 0);
 
@@ -1463,7 +1480,8 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         throw new Error("no audio samples were captured from video");
       }
 
-      const buffer = audioContext.createBuffer(channels, totalLength, audioContext.sampleRate);
+      const sampleRate = localCtx ? localCtx.sampleRate : (audioContext ? audioContext.sampleRate : 44100);
+      const buffer = (audioContext || localCtx).createBuffer(channels, totalLength, sampleRate);
 
       for(let ch=0; ch<channels; ch++){
         const out = buffer.getChannelData(ch);
@@ -1474,29 +1492,22 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         }
       }
 
-      if(pageWasHidden){
-        buffer._wavecutCaptureWarning = "抽出中にページが非表示または再生停止になったため、音切れ・途中欠落の可能性があります。";
-      }
-
       if(finishingNow){
         const sec = media.currentTime || (buffer.duration || 0);
-        buffer._wavecutCaptureWarning =
-          (buffer._wavecutCaptureWarning ? buffer._wavecutCaptureWarning + " " : "") +
-          `途中確定で取り込みました。確定位置：約${formatTime(sec)}。`;
+        buffer._wavecutCaptureWarning = `途中確定で取り込みました。確定位置：約${formatTime(sec)}。`;
       }
 
       return buffer;
     };
 
-    const cleanup = ()=>{
+    const cleanup = async ()=>{
       stopProgressTimer();
-      document.removeEventListener("visibilitychange", visibilityHandler);
+      releaseMovWakeLock();
       setAppLocked(false);
 
       try{ if(processor) processor.disconnect(); }catch(e){}
       try{ if(source) source.disconnect(); }catch(e){}
-      try{ if(silentGain) silentGain.disconnect(); }catch(e){}
-      try{ if(monitorGain) monitorGain.disconnect(); }catch(e){}
+      try{ if(playGain) playGain.disconnect(); }catch(e){}
       try{ media.pause(); }catch(e){}
       try{ URL.revokeObjectURL(url); }catch(e){}
       try{ media.remove(); }catch(e){}
@@ -1507,6 +1518,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       try{ finishNowBtn.remove(); }catch(e){}
       try{ cancelBtn.remove(); }catch(e){}
       try{ lockNotice.remove(); }catch(e){}
+      try{ if(localCtx && localCtx.state !== "closed") await localCtx.close(); }catch(e){}
     };
 
     fileStatus.classList.add("extracting");
@@ -1518,21 +1530,8 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
     fileStatus.appendChild(finishNowBtn);
     fileStatus.appendChild(cancelBtn);
     fileStatus.appendChild(lockNotice);
-    fileStatus.appendChild(media);
 
     updateModeButtons();
-
-    media.addEventListener("loadedmetadata", ()=>{
-      lastKnownDuration = media.duration || mediaInfo?.duration || 0;
-      if(progressWrap.style.display !== "none"){
-        updateProgress(started ? "取り込み中" : "未開始");
-      }
-    });
-
-    media.addEventListener("timeupdate", ()=>{
-      lastKnownCurrent = media.currentTime || lastKnownCurrent;
-      if(started && !completed) updateProgress("取り込み中");
-    });
 
     silentBtn.onclick = ()=>{
       if(started) return;
@@ -1546,17 +1545,17 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       updateModeButtons();
     };
 
-    cancelBtn.onclick = ()=>{
-      cleanup();
+    cancelBtn.onclick = async ()=>{
+      await cleanup();
       reject(new Error("user cancelled video audio extraction"));
     };
 
-    media.onerror = ()=>{
-      cleanup();
+    media.onerror = async ()=>{
+      await cleanup();
       reject(new Error("Safari could not play this video file"));
     };
 
-    const finishCapture = ()=>{
+    const finishCapture = async ()=>{
       if(!started || completed) return;
       finishingNow = true;
       completed = true;
@@ -1564,10 +1563,10 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
 
       try{
         const buffer = buildBufferFromChunks();
-        cleanup();
+        await cleanup();
         resolve(buffer);
       }catch(err){
-        cleanup();
+        await cleanup();
         reject(err);
       }
     };
@@ -1591,7 +1590,6 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
         `動画の音声を取り込みます。\n\n` +
         `現在の設定：${modeText}\n\n` +
         "注意：抽出中は以下をしないでください。\n" +
-        "・他のタブへ切り替える\n" +
         "・別アプリを開く\n" +
         "・画面ロックする\n" +
         "・動画を一時停止する\n\n" +
@@ -1603,7 +1601,7 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
 
       started = true;
       setAppLocked(true);
-      document.addEventListener("visibilitychange", visibilityHandler);
+      requestMovWakeLock();
 
       startBtn.disabled = true;
       cancelBtn.disabled = true;
@@ -1611,92 +1609,103 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
       listenBtn.disabled = true;
       finishNowBtn.disabled = false;
 
-      // 取り込み中は動画側の操作で止めてしまわないよう、ブラウザ標準コントロールを隠す
-      media.controls = false;
-
       lockNotice.innerHTML =
         `🔒 取り込み中です。完了までこの画面のままお待ちください。<br>` +
         `進行状況は上のバーで確認できます。<br>` +
         `必要なところまで来たら「ここまでで抽出確定」を押せます。`;
 
       try{
-        if(audioContext.state === "suspended"){
-          await audioContext.resume();
+        localCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if(localCtx.state === "suspended"){
+          await localCtx.resume();
         }
 
-        source = audioContext.createMediaElementSource(media);
-        processor = audioContext.createScriptProcessor(4096, channels, channels);
-
-        silentGain = audioContext.createGain();
-        silentGain.gain.value = 0;
-
-        monitorGain = audioContext.createGain();
-        monitorGain.gain.value = listenDuringCapture ? 1 : 0;
-
-        source.connect(processor);
-        processor.connect(silentGain);
-        silentGain.connect(audioContext.destination);
-
-        source.connect(monitorGain);
-        monitorGain.connect(audioContext.destination);
-
-        processor.onaudioprocess = (event)=>{
-          if(completed) return;
-
-          const input = event.inputBuffer;
-
-          for(let ch=0; ch<channels; ch++){
-            const sourceCh = Math.min(ch, input.numberOfChannels - 1);
-            const data = input.getChannelData(sourceCh);
-            chunks[ch].push(new Float32Array(data));
-          }
-
-          updateProgress("取り込み中");
-        };
-
-        media.onpause = ()=>{
-          const duration = media.duration || mediaInfo?.duration || 0;
-          const nearEnd = duration && media.currentTime >= duration - 0.4;
-
-          if(started && !completed && !nearEnd){
-            pageWasHidden = true;
-            updateProgress("停止検知");
-            panel.innerHTML =
-              `⚠️ 再生が途中で停止しました。<br>` +
-              `着信・画面ロック・タブ切り替え・誤操作の影響で抽出が中断した可能性があります。<br>` +
-              `必要に応じて「ここまでで抽出確定」または再読み込みしてください。`;
-          }
-        };
-
-        media.onended = ()=>{
-          if(completed) return;
-          completed = true;
-          updateProgress("完了");
-
+        media.onloadedmetadata = async ()=>{
           try{
-            const buffer = buildBufferFromChunks();
-            cleanup();
-            resolve(buffer);
+            lastKnownDuration = media.duration || mediaInfo?.duration || 0;
+
+            source = localCtx.createMediaElementSource(media);
+            processor = localCtx.createScriptProcessor(4096, channels, channels);
+            playGain = localCtx.createGain();
+            playGain.gain.value = listenDuringCapture ? 1 : 0;
+
+            // 参考アプリと同じ方式：
+            // source -> processor -> playGain -> destination
+            // 取り込みはprocessorのinputBufferから直接行い、
+            // 出力音量だけplayGainで切り替える。
+            source.connect(processor);
+            processor.connect(playGain);
+            playGain.connect(localCtx.destination);
+
+            processor.onaudioprocess = (event)=>{
+              if(completed) return;
+
+              const input = event.inputBuffer;
+
+              for(let ch=0; ch<channels; ch++){
+                const sourceCh = Math.min(ch, input.numberOfChannels - 1);
+                const data = input.getChannelData(sourceCh);
+                chunks[ch].push(new Float32Array(data));
+              }
+
+              // processor出力にも音声をコピーする。
+              // これによりiOS SafariでAudioGraphが止まりにくくなる。
+              for(let ch=0; ch<event.outputBuffer.numberOfChannels; ch++){
+                const sourceCh = Math.min(ch, input.numberOfChannels - 1);
+                event.outputBuffer.getChannelData(ch).set(input.getChannelData(sourceCh));
+              }
+
+              lastKnownCurrent = media.currentTime || lastKnownCurrent;
+              updateProgress("取り込み中");
+            };
+
+            media.onpause = ()=>{
+              const duration = media.duration || mediaInfo?.duration || 0;
+              const nearEnd = duration && media.currentTime >= duration - 0.4;
+
+              if(started && !completed && !nearEnd){
+                panel.innerHTML =
+                  `⚠️ 再生が途中で停止しました。<br>` +
+                  `画面ロック・着信・誤操作などで取り込みが止まった可能性があります。<br>` +
+                  `必要に応じて「ここまでで抽出確定」または再読み込みしてください。`;
+                updateProgress("停止検知");
+              }
+            };
+
+            media.onended = async ()=>{
+              if(completed) return;
+              completed = true;
+              updateProgress("完了");
+
+              try{
+                const buffer = buildBufferFromChunks();
+                await cleanup();
+                resolve(buffer);
+              }catch(err){
+                await cleanup();
+                reject(err);
+              }
+            };
+
+            media.currentTime = 0;
+            media.muted = false;
+            media.volume = 1;
+            if(playGain) playGain.gain.value = listenDuringCapture ? 1 : 0;
+
+            startProgressTimer();
+            await media.play();
           }catch(err){
-            cleanup();
+            await cleanup();
             reject(err);
           }
         };
 
-        media.currentTime = 0;
-        media.muted = false;
-        media.volume = 1;
-        if(monitorGain) monitorGain.gain.value = listenDuringCapture ? 1 : 0;
-
-        startProgressTimer();
-        await media.play();
+        media.load();
       }catch(err){
-        cleanup();
+        await cleanup();
         reject(err);
       }
     };
-
-    media.load();
   });
 }
 
