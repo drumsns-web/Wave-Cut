@@ -523,6 +523,14 @@ audio{width:100%;margin:8px 0}
   border-radius:12px;
   padding:10px;
 }
+.ffmpeg-note{
+  color:#fbbf24;
+  background:rgba(251,191,36,.10);
+  border:1px solid rgba(251,191,36,.25);
+  border-radius:12px;
+  padding:10px;
+  margin-top:8px;
+}
 .small{
   font-size:12px;
   color:var(--muted);
@@ -720,6 +728,8 @@ let animationFrameId = null;
 let waveformCache = null;
 let waveformCacheBuffer = null;
 let currentStream = null;
+let ffmpegInstance = null;
+let ffmpegLoaded = false;
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
@@ -999,29 +1009,148 @@ stopBtn.onclick=()=>{
 
 
 
+
 async function decodeFileToAudioBuffer(file){
   ensureAudioContext();
 
-  // ClipLoop方式を参考に、まずブラウザのメディア要素で読めるか確認する。
-  // MOV/MP4はdecodeAudioDataよりvideo/audio要素の方が読めるケースがある。
-  const mediaInfo = await probeMediaFile(file);
+  let mediaInfo = null;
+  try{
+    mediaInfo = await probeMediaFile(file);
+  }catch(e){
+    console.warn("Media probe failed. Continuing anyway.", e);
+  }
 
-  // まず通常の高速デコードを試す。MP3/WAV/M4A/一部MP4はここで通る。
   try{
     const arrayBuffer = await file.arrayBuffer();
     const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
     decoded._wavecutLoadMethod = "direct";
-    decoded._wavecutMediaDuration = mediaInfo.duration;
+    decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
     return decoded;
   }catch(primaryError){
-    console.warn("Direct decode failed. Trying media element capture fallback.", primaryError);
+    console.warn("Direct decode failed.", primaryError);
   }
 
-  // decodeAudioDataに失敗しても、media要素で再生できる場合は、再生音をWeb Audio経由で録音してAudioBuffer化する。
+  if(shouldTryFfmpeg(file)){
+    try{
+      const decoded = await extractAudioWithFfmpeg(file);
+      decoded._wavecutLoadMethod = "ffmpeg-wasm";
+      decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
+      return decoded;
+    }catch(ffmpegError){
+      console.warn("ffmpeg.wasm extraction failed. Trying media capture fallback.", ffmpegError);
+    }
+  }
+
   const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
   captured._wavecutLoadMethod = "media-capture";
-  captured._wavecutMediaDuration = mediaInfo.duration;
+  captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
   return captured;
+}
+
+function shouldTryFfmpeg(file){
+  const name = (file.name || "").toLowerCase();
+  const type = (file.type || "").toLowerCase();
+  return (
+    type.includes("quicktime") ||
+    type.includes("mp4") ||
+    type.startsWith("video/") ||
+    name.endsWith(".mov") ||
+    name.endsWith(".mp4") ||
+    name.endsWith(".m4v")
+  );
+}
+
+async function loadFfmpeg(){
+  if(ffmpegLoaded && ffmpegInstance) return ffmpegInstance;
+
+  if(!window.FFmpegWASM || !window.FFmpegUtil){
+    throw new Error("ffmpeg.wasm library is not loaded");
+  }
+
+  const { FFmpeg } = window.FFmpegWASM;
+  const { toBlobURL } = window.FFmpegUtil;
+
+  ffmpegInstance = new FFmpeg();
+
+  ffmpegInstance.on("log", ({ message }) => {
+    console.log("[ffmpeg]", message);
+  });
+
+  ffmpegInstance.on("progress", ({ progress }) => {
+    const pct = Math.max(0, Math.min(100, Math.round((progress || 0) * 100)));
+    fileStatus.classList.add("extracting");
+    fileStatus.innerHTML =
+      `ffmpeg.wasmでMOV/MP4から音声WAVを抽出中... ${pct}%<br>` +
+      `動画部分は使わず、音声だけを取り出しています。<br>` +
+      `初回はffmpeg本体の読み込みで少し時間がかかります。`;
+  });
+
+  const baseURL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+
+  fileStatus.classList.add("extracting");
+  fileStatus.innerHTML =
+    `MOV対策エンジンを読み込み中...<br>` +
+    `初回のみ時間がかかります。<br>` +
+    `<span class="ffmpeg-note">iPhoneではメモリ不足で失敗する場合があります。その場合は短い動画で試してください。</span>`;
+
+  await ffmpegInstance.load({
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, "application/wasm")
+  });
+
+  ffmpegLoaded = true;
+  return ffmpegInstance;
+}
+
+async function extractAudioWithFfmpeg(file){
+  ensureAudioContext();
+
+  const ffmpeg = await loadFfmpeg();
+  const { fetchFile } = window.FFmpegUtil;
+
+  const inputExt = getFileExt(file.name) || "mov";
+  const inputName = `input.${inputExt}`;
+  const outputName = "wavecut_extracted.wav";
+
+  fileStatus.classList.add("extracting");
+  fileStatus.innerHTML =
+    `MOV/MP4から音声だけを抽出しています...<br>` +
+    `出力形式：WAV / 非圧縮PCM<br>` +
+    `動画部分は除外されます。`;
+
+  try{
+    try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+    try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+
+    await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+    await ffmpeg.exec([
+      "-i", inputName,
+      "-vn",
+      "-acodec", "pcm_s16le",
+      "-ar", "44100",
+      "-ac", "2",
+      outputName
+    ]);
+
+    const wavData = await ffmpeg.readFile(outputName);
+    const wavBuffer = wavData.buffer.slice(wavData.byteOffset, wavData.byteOffset + wavData.byteLength);
+    const decoded = await audioContext.decodeAudioData(wavBuffer.slice(0));
+
+    try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+    try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+
+    return decoded;
+  }catch(err){
+    try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+    try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+    throw err;
+  }
+}
+
+function getFileExt(name){
+  if(!name || !name.includes(".")) return "";
+  return name.split(".").pop().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function probeMediaFile(file){
@@ -1208,7 +1337,7 @@ fileInput.onchange = async(e)=>{
 
   try{
     fileStatus.classList.add("extracting");
-    fileStatus.innerHTML = "読み込み中...<br>動画の場合は音声抽出に少し時間がかかる場合があります。";
+    fileStatus.innerHTML = "読み込み中...<br>MOV/MP4の場合は、必要に応じてffmpeg.wasmで音声WAVを抽出します。";
 
     const decoded = await decodeFileToAudioBuffer(file);
 
@@ -1250,7 +1379,7 @@ fileInput.onchange = async(e)=>{
 
   }catch(err){
     fileStatus.classList.remove("extracting");
-    alert("このファイルから音声を読み込めませんでした。ブラウザで再生できるMOV/MP4なら読み込める可能性がありますが、端末やSafariの制限で抽出できない場合があります。別形式に書き出すか、短いファイルで試してください。");
+    alert("このファイルから音声を読み込めませんでした。MOV対策としてffmpeg.wasm抽出も試しましたが、端末のメモリ不足・Safari制限・ファイル破損などで失敗した可能性があります。短い動画、またはMP4/H.264/AACで再書き出しして試してください。");
     console.error(err);
   }
 
@@ -1300,9 +1429,12 @@ function setFileStatus(file, targetText, decoded){
   const originalType = file.type || "不明";
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
-  const methodText = decoded._wavecutLoadMethod === "media-capture"
-    ? "読み込み方式：ブラウザ再生経由で音声抽出"
-    : "読み込み方式：直接デコード";
+  let methodText = "読み込み方式：直接デコード";
+  if(decoded._wavecutLoadMethod === "media-capture"){
+    methodText = "読み込み方式：ブラウザ再生経由で音声抽出";
+  }else if(decoded._wavecutLoadMethod === "ffmpeg-wasm"){
+    methodText = "読み込み方式：ffmpeg.wasmでMOV/MP4からWAV音声抽出";
+  }
 
   let conversionMessage = "";
 
@@ -1310,6 +1442,7 @@ function setFileStatus(file, targetText, decoded){
     conversionMessage =
       `✅ 音声抽出完了<br>` +
       `✅ 動画部分は除外済み<br>` +
+      `✅ 必要に応じてMOV/MP4からWAV音声へ変換済み<br>` +
       `現在は「音声のみ」を編集中`;
   }else{
     conversionMessage =
