@@ -2812,6 +2812,12 @@ let pointerDownRatio=0;
 let beforePointerStart=null;
 let beforePointerEnd=null;
 
+function refreshSelectionUi(){
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+  updateButtons();
+}
+
 canvas.addEventListener("pointerdown",e=>{
   if(!activeBuffer()) return;
   isDragging=true;
@@ -2820,15 +2826,13 @@ canvas.addEventListener("pointerdown",e=>{
   pointerDownRatio=getCanvasRatio(e);
   selectedStart=pointerDownRatio;
   selectedEnd=selectedStart;
-  drawWaveform(activeBuffer());
-  updateTimeLabel(activeBuffer());
+  refreshSelectionUi();
 });
 
 canvas.addEventListener("pointermove",e=>{
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
-  drawWaveform(activeBuffer());
-  updateTimeLabel(activeBuffer());
+  refreshSelectionUi();
 });
 
 canvas.addEventListener("pointerup",e=>{
@@ -2842,10 +2846,16 @@ canvas.addEventListener("pointerup",e=>{
     selectedStart = beforePointerStart;
     selectedEnd = beforePointerEnd;
     seekToRatio(upRatio);
+    updateButtons();
   }else{
-    drawWaveform(activeBuffer());
-    updateTimeLabel(activeBuffer());
+    refreshSelectionUi();
   }
+});
+
+canvas.addEventListener("pointercancel",()=>{
+  if(!isDragging) return;
+  isDragging=false;
+  refreshSelectionUi();
 });
 
 function getCanvasRatio(e){
@@ -2863,8 +2873,7 @@ setStartBtn.onclick=()=>{
     selectedEnd = null;
   }
 
-  drawWaveform(activeBuffer());
-  updateTimeLabel(activeBuffer());
+  refreshSelectionUi();
 };
 
 setEndBtn.onclick=()=>{
@@ -2880,8 +2889,7 @@ setEndBtn.onclick=()=>{
     selectedEnd = null;
   }
 
-  drawWaveform(activeBuffer());
-  updateTimeLabel(activeBuffer());
+  refreshSelectionUi();
 };
 
 cutBtn.onclick=()=>{
