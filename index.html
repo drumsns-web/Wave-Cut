@@ -402,6 +402,45 @@ audio{width:100%;margin:8px 0}
   padding:10px;
   margin-top:8px;
 }
+
+.capture-control-panel{
+  margin-top:10px;
+  padding:12px;
+  border-radius:16px;
+  border:1px solid rgba(251,191,36,.35);
+  background:rgba(251,191,36,.08);
+}
+.capture-title{
+  font-size:14px;
+  font-weight:900;
+  color:#fde68a;
+  margin-bottom:8px;
+}
+.capture-warning{
+  font-size:12.5px;
+  color:#fef3c7;
+  line-height:1.65;
+  margin-bottom:8px;
+}
+.capture-control-panel button{
+  margin-top:8px;
+}
+.capture-running-lock{
+  position:fixed;
+  left:10px;
+  right:10px;
+  bottom:10px;
+  z-index:9999;
+  padding:10px 12px;
+  border-radius:14px;
+  background:rgba(15,23,42,.96);
+  border:1px solid rgba(53,224,161,.45);
+  color:#bbf7d0;
+  font-size:12.5px;
+  line-height:1.5;
+  box-shadow:0 12px 35px rgba(0,0,0,.45);
+}
+
 .small{
   font-size:12px;
   color:var(--muted);
@@ -457,6 +496,18 @@ audio{width:100%;margin:8px 0}
     <div id="selectedFileName" class="file-name">選択されていません</div>
   </div>
   <div id="fileStatus" class="info">ファイル未選択</div>
+
+  <div id="captureControlPanel" class="capture-control-panel" style="display:none;">
+    <div class="capture-title">iPhone MOV 手動抽出</div>
+    <div id="captureWarningText" class="capture-warning">
+      MOVの音声を動画再生しながら取り込みます。抽出中はこのページを開いたままにしてください。
+    </div>
+    <button id="captureMonitorToggleBtn" type="button" class="orange">抽出音：無音</button>
+    <button id="captureStartLockedBtn" type="button" class="green">最後まで取り込む</button>
+    <div class="small">
+      「最後まで取り込む」を押すと、抽出完了までファイル選択・録音・編集ボタンを一時的にロックします。途中でタブ移動・画面ロック・電話着信があると失敗または音切れする可能性があります。
+    </div>
+  </div>
 
   <audio id="audio" controls></audio>
   <video id="mediaProbe" playsinline muted style="display:none"></video>
@@ -601,6 +652,12 @@ let waveformCacheBuffer = null;
 let currentStream = null;
 let ffmpegInstance = null;
 let ffmpegLoaded = false;
+let captureMonitorEnabled = false;
+let captureInProgress = false;
+let captureLockedMode = false;
+let captureInterrupted = false;
+let pendingCaptureResolve = null;
+let pendingCaptureReject = null;
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
@@ -613,6 +670,10 @@ const recordBtn = document.getElementById("recordBtn");
 const stopBtn = document.getElementById("stopBtn");
 const fileInput = document.getElementById("fileInput");
 const fileStatus = document.getElementById("fileStatus");
+const captureControlPanel = document.getElementById("captureControlPanel");
+const captureWarningText = document.getElementById("captureWarningText");
+const captureMonitorToggleBtn = document.getElementById("captureMonitorToggleBtn");
+const captureStartLockedBtn = document.getElementById("captureStartLockedBtn");
 const selectedFileName = document.getElementById("selectedFileName");
 const sourceStatus = document.getElementById("sourceStatus");
 const zoomSelect = document.getElementById("zoomSelect");
@@ -1313,6 +1374,113 @@ function extractAudioViaUserTapMediaCapture(file, mediaInfo){
   });
 }
 
+
+function setCapturePanelVisible(visible){
+  if(!captureControlPanel) return;
+  captureControlPanel.style.display = visible ? "block" : "none";
+}
+
+function updateCaptureMonitorButton(){
+  if(!captureMonitorToggleBtn) return;
+  captureMonitorToggleBtn.textContent = captureMonitorEnabled ? "抽出音：聴きながら" : "抽出音：無音";
+  captureMonitorToggleBtn.classList.toggle("green", captureMonitorEnabled);
+  captureMonitorToggleBtn.classList.toggle("orange", !captureMonitorEnabled);
+}
+
+if(captureMonitorToggleBtn){
+  captureMonitorToggleBtn.onclick = ()=>{
+    if(captureInProgress) return;
+    captureMonitorEnabled = !captureMonitorEnabled;
+    updateCaptureMonitorButton();
+  };
+}
+
+function setControlsLockedForCapture(locked){
+  const controls = [
+    fileInput, recordBtn, stopBtn, refreshMicBtn, deleteMainBtn, deleteTakeBtn,
+    setStartBtn, setEndBtn, cutBtn, trimBtn, applyFxBtn,
+    selectMainBtn, selectTakeBtn, prependTakeBtn, appendTakeBtn, mixTakeBtn,
+    saveWavBtn, saveMp3Btn, wavePlayBtn, wavePauseBtn
+  ];
+
+  controls.forEach(el=>{
+    if(!el) return;
+    if(locked){
+      el.dataset.capturePrevDisabled = el.disabled ? "1" : "0";
+      el.disabled = true;
+    }else if(el.dataset.capturePrevDisabled !== undefined){
+      el.disabled = el.dataset.capturePrevDisabled === "1";
+      delete el.dataset.capturePrevDisabled;
+    }
+  });
+
+  const existing = document.getElementById("captureRunningLock");
+  if(locked && !existing){
+    const div = document.createElement("div");
+    div.id = "captureRunningLock";
+    div.className = "capture-running-lock";
+    div.innerHTML = "MOV音声を最後まで取り込み中です。完了までこのページを開いたままにしてください。タブ移動・画面ロック・電話着信は失敗の原因になります。";
+    document.body.appendChild(div);
+  }else if(!locked && existing){
+    existing.remove();
+  }
+}
+
+function handleBeforeUnloadDuringCapture(e){
+  if(!captureInProgress) return;
+  e.preventDefault();
+  e.returnValue = "";
+}
+
+document.addEventListener("visibilitychange", ()=>{
+  if(!captureInProgress) return;
+  if(document.hidden){
+    captureInterrupted = true;
+    fileStatus.innerHTML =
+      `⚠️ 抽出中にページが非表示になりました。<br>` +
+      `iPhone Safariでは音声処理が止まる可能性があります。<br>` +
+      `ページに戻っても、音切れ・途中終了・失敗が起きる場合があります。`;
+  }
+});
+
+function waitForLockedCaptureStart(duration){
+  return new Promise((resolve, reject)=>{
+    setCapturePanelVisible(true);
+    updateCaptureMonitorButton();
+
+    captureWarningText.innerHTML =
+      `MOVの音声を動画再生しながら取り込みます。<br>` +
+      `長さ：${formatTime(duration)}<br>` +
+      `抽出中はこのタブを開いたままにしてください。<br>` +
+      `他のタブへ切り替える・画面ロック・電話着信・別アプリ起動は失敗の原因になります。`;
+
+    captureStartLockedBtn.disabled = false;
+    captureMonitorToggleBtn.disabled = false;
+    captureStartLockedBtn.textContent = "最後まで取り込む";
+
+    pendingCaptureResolve = resolve;
+    pendingCaptureReject = reject;
+
+    captureStartLockedBtn.onclick = ()=>{
+      const ok = confirm(
+        "MOV音声の抽出を開始します。\\n\\n" +
+        "・抽出中はこのページを開いたままにしてください。\\n" +
+        "・他のタブへ切り替えないでください。\\n" +
+        "・画面をロックしないでください。\\n" +
+        "・電話着信や別アプリ起動があると失敗する可能性があります。\\n\\n" +
+        "このまま最後まで取り込みますか？"
+      );
+
+      if(!ok) return;
+
+      captureStartLockedBtn.disabled = true;
+      captureMonitorToggleBtn.disabled = true;
+      captureStartLockedBtn.textContent = "取り込み中...";
+      resolve({ monitor: captureMonitorEnabled, locked: true });
+    };
+  });
+}
+
 function extractAudioViaPlayableMedia(file, mediaInfo){
   return new Promise(async (resolve, reject)=>{
     ensureAudioContext();
@@ -1329,16 +1497,33 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
       media.preload = "auto";
       media.playsInline = true;
       media.muted = false;
+      media.controls = false;
       media.style.position = "fixed";
       media.style.left = "-9999px";
       media.style.width = "1px";
       media.style.height = "1px";
       document.body.appendChild(media);
 
+      let source = null;
+      let processor = null;
+      let zeroGain = null;
+      let monitorGain = null;
+
       const cleanup = ()=>{
         try{ media.pause(); }catch(e){}
+        try{ if(processor) processor.disconnect(); }catch(e){}
+        try{ if(source) source.disconnect(); }catch(e){}
+        try{ if(zeroGain) zeroGain.disconnect(); }catch(e){}
+        try{ if(monitorGain) monitorGain.disconnect(); }catch(e){}
         try{ URL.revokeObjectURL(url); }catch(e){}
         try{ media.remove(); }catch(e){}
+        window.removeEventListener("beforeunload", handleBeforeUnloadDuringCapture);
+        captureInProgress = false;
+        captureLockedMode = false;
+        setControlsLockedForCapture(false);
+        setCapturePanelVisible(false);
+        pendingCaptureResolve = null;
+        pendingCaptureReject = null;
       };
 
       media.onerror = ()=>{
@@ -1357,14 +1542,31 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
 
         fileStatus.innerHTML =
           `MOV/MP4をブラウザ再生方式で読み込みました。<br>` +
-          `音声だけを抽出中...<br>` +
+          `音声だけを抽出する準備ができました。<br>` +
           `長さ：${formatTime(duration)}<br>` +
-          `※この方式では動画の長さに近い時間がかかる場合があります。`;
+          `下の「最後まで取り込む」を押してください。`;
+
+        let startOptions;
+        try{
+          startOptions = await waitForLockedCaptureStart(duration);
+        }catch(waitError){
+          cleanup();
+          reject(waitError);
+          return;
+        }
+
+        captureInProgress = true;
+        captureLockedMode = !!startOptions.locked;
+        captureInterrupted = false;
+        window.addEventListener("beforeunload", handleBeforeUnloadDuringCapture);
+
+        if(captureLockedMode){
+          setControlsLockedForCapture(true);
+        }
 
         const channels = 2;
         const chunks = [[], []];
 
-        let source;
         try{
           source = audioContext.createMediaElementSource(media);
         }catch(e){
@@ -1373,13 +1575,19 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
           return;
         }
 
-        const processor = audioContext.createScriptProcessor(4096, channels, channels);
-        const zeroGain = audioContext.createGain();
+        processor = audioContext.createScriptProcessor(4096, channels, channels);
+        zeroGain = audioContext.createGain();
         zeroGain.gain.value = 0;
+
+        monitorGain = audioContext.createGain();
+        monitorGain.gain.value = startOptions.monitor ? 1 : 0;
 
         source.connect(processor);
         processor.connect(zeroGain);
         zeroGain.connect(audioContext.destination);
+
+        source.connect(monitorGain);
+        monitorGain.connect(audioContext.destination);
 
         processor.onaudioprocess = (event)=>{
           const input = event.inputBuffer;
@@ -1392,20 +1600,20 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
 
           if(media.duration && isFinite(media.duration)){
             const pct = Math.min(100, Math.round((media.currentTime / media.duration) * 100));
+            const listenText = startOptions.monitor ? "聴きながら抽出中" : "無音で抽出中";
+            const interruptedText = captureInterrupted
+              ? `<br><span class="ffmpeg-note">⚠️ 抽出中にページ非表示が検出されました。完了しても音切れの可能性があります。</span>`
+              : "";
+
             fileStatus.innerHTML =
-              `MOV/MP4をブラウザ再生方式で読み込み中... ${pct}%<br>` +
+              `${listenText}... ${pct}%<br>` +
               `動画部分は使わず、音声のみを抽出しています。<br>` +
-              `${formatTime(media.currentTime)} / ${formatTime(media.duration)}`;
+              `${formatTime(media.currentTime)} / ${formatTime(media.duration)}` +
+              interruptedText;
           }
         };
 
         media.onended = ()=>{
-          try{
-            processor.disconnect();
-            source.disconnect();
-            zeroGain.disconnect();
-          }catch(e){}
-
           const totalLength = chunks[0].reduce((sum, arr)=>sum + arr.length, 0);
 
           if(totalLength === 0){
@@ -1425,7 +1633,13 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
             }
           }
 
+          const wasInterrupted = captureInterrupted;
           cleanup();
+
+          if(wasInterrupted){
+            buffer._wavecutCaptureWarning = "抽出中にタブ移動・画面非表示などが検出されました。音切れや途中欠落がある可能性があります。";
+          }
+
           resolve(buffer);
         };
 
@@ -1446,6 +1660,7 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
     }
   });
 }
+
 
 fileInput.onchange = async(e)=>{
   const file = e.target.files[0];
@@ -1587,7 +1802,8 @@ function setFileStatus(file, targetText, decoded){
     `現在の編集形式：${internalType}<br>` +
     `${methodText}<br>` +
     `今回読み込んだ長さ：${formatTime(decoded.duration)}<br>` +
-    `現在のタイムライン全体：${mainBuffer ? formatTime(mainBuffer.duration) : formatTime(decoded.duration)}`;
+    `現在のタイムライン全体：${mainBuffer ? formatTime(mainBuffer.duration) : formatTime(decoded.duration)}` +
+    `${decoded._wavecutCaptureWarning ? `<br><br><span class="ffmpeg-note">⚠️ ${decoded._wavecutCaptureWarning}</span>` : ""}`;
 }
 
 function resetFx(){
