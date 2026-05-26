@@ -613,7 +613,10 @@ audio{width:100%;margin:8px 0}
       <button id="pasteClipboardBtn" disabled class="green">現在位置に貼り付け</button>
       <button id="clearClipboardBtn" disabled>クリップを消去</button>
     </div>
-    <button id="undoEditBtn" disabled>直前の編集を元に戻す</button>
+    <div class="row">
+      <button id="undoEditBtn" disabled>元に戻す（0/15）</button>
+      <button id="resetInitialBtn" disabled class="red">最初の状態にリセット</button>
+    </div>
     <div id="clipboardStatus" class="advanced-status">クリップ：なし</div>
   </div>
 
@@ -701,8 +704,10 @@ let ffmpegInstance = null;
 let ffmpegLoaded = false;
 let clipboardBuffer = null;
 let clipboardSourceLabel = "";
-let undoState = null;
-let undoLabel = "";
+let undoStack = [];
+const MAX_UNDO_STEPS = 15;
+let initialEditState = null;
+let initialEditLabel = "";
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
@@ -734,6 +739,7 @@ const copyToClipboardBtn = document.getElementById("copyToClipboardBtn");
 const pasteClipboardBtn = document.getElementById("pasteClipboardBtn");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const undoEditBtn = document.getElementById("undoEditBtn");
+const resetInitialBtn = document.getElementById("resetInitialBtn");
 const clipboardStatus = document.getElementById("clipboardStatus");
 const saveWavBtn = document.getElementById("saveWavBtn");
 const saveMp3Btn = document.getElementById("saveMp3Btn");
@@ -1081,6 +1087,7 @@ recordBtn.onclick = async()=>{
 
       invalidateWaveformCache();
       playheadRatio=0;
+      saveInitialEditState(recordTarget.value === "take" ? "追加録音直後" : "メイン録音直後");
       resetFx();
       refreshPreview();
       updateButtons();
@@ -2037,6 +2044,7 @@ fileInput.onchange = async(e)=>{
       targetText = "メイン音源を置き換え";
     }
 
+    saveInitialEditState(targetText);
     setFileStatus(file, targetText, decoded);
     resetFx();
     selectedStart = null;
@@ -2073,7 +2081,9 @@ function updateButtons(){
   copyToClipboardBtn.disabled = !hasRange;
   pasteClipboardBtn.disabled = !(hasActive && clipboardBuffer);
   clearClipboardBtn.disabled = !clipboardBuffer;
-  undoEditBtn.disabled = !undoState;
+  undoEditBtn.disabled = undoStack.length === 0;
+  undoEditBtn.textContent = `元に戻す（${undoStack.length}/${MAX_UNDO_STEPS}）`;
+  if(resetInitialBtn) resetInitialBtn.disabled = !initialEditState;
   updateClipboardStatus();
   saveWavBtn.disabled = !mainBuffer;
   saveMp3Btn.disabled = !mainBuffer;
@@ -2914,18 +2924,20 @@ trimBtn.onclick=()=>{
 
 function updateClipboardStatus(){
   if(!clipboardStatus) return;
-  const undoText = undoState ? ` / 元に戻す可：${undoLabel || "直前の編集"}` : "";
+  const undoText = undoStack.length > 0 ? ` / アンドゥ：${undoStack.length}/${MAX_UNDO_STEPS}` : "";
+  const resetText = initialEditState ? ` / 初期リセット可：${initialEditLabel || "読み込み直後"}` : "";
   if(!clipboardBuffer){
-    clipboardStatus.textContent = `クリップ：なし${undoText}`;
+    clipboardStatus.textContent = `クリップ：なし${undoText}${resetText}`;
     return;
   }
   const label = clipboardSourceLabel ? `${clipboardSourceLabel} / ` : "";
-  clipboardStatus.textContent = `クリップ保持中：${label}${formatTimeMs(clipboardBuffer.duration)}${undoText}`;
+  clipboardStatus.textContent = `クリップ保持中：${label}${formatTimeMs(clipboardBuffer.duration)}${undoText}${resetText}`;
 }
 
-function saveUndoState(label="編集"){
+function createEditSnapshot(label="編集"){
   ensureAudioContext();
-  undoState = {
+  return {
+    label,
     mainBuffer: mainBuffer ? cloneBuffer(mainBuffer) : null,
     takeBuffer: takeBuffer ? cloneBuffer(takeBuffer) : null,
     activeBufferType,
@@ -2936,32 +2948,98 @@ function saveUndoState(label="編集"){
     mainFxBaked,
     takeFxBaked,
     mainFxBackup: mainFxBackup ? cloneBuffer(mainFxBackup) : null,
-    takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null
+    takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null,
+    clipboardBuffer: clipboardBuffer ? cloneBuffer(clipboardBuffer) : null,
+    clipboardSourceLabel
   };
-  undoLabel = label;
+}
+
+function saveUndoState(label="編集"){
+  undoStack.push(createEditSnapshot(label));
+  if(undoStack.length > MAX_UNDO_STEPS){
+    undoStack.shift();
+  }
+  updateClipboardStatus();
 }
 
 function restoreUndoState(){
-  if(!undoState) return;
-  mainBuffer = undoState.mainBuffer ? cloneBuffer(undoState.mainBuffer) : null;
-  takeBuffer = undoState.takeBuffer ? cloneBuffer(undoState.takeBuffer) : null;
-  activeBufferType = undoState.activeBufferType || "main";
-  selectedStart = undoState.selectedStart;
-  selectedEnd = undoState.selectedEnd;
-  playheadRatio = undoState.playheadRatio || 0;
-  viewportStart = undoState.viewportStart || 0;
-  mainFxBaked = !!undoState.mainFxBaked;
-  takeFxBaked = !!undoState.takeFxBaked;
-  mainFxBackup = undoState.mainFxBackup ? cloneBuffer(undoState.mainFxBackup) : null;
-  takeFxBackup = undoState.takeFxBackup ? cloneBuffer(undoState.takeFxBackup) : null;
-  undoState = null;
-  undoLabel = "";
+  if(undoStack.length === 0) return;
+  const state = undoStack.pop();
+  mainBuffer = state.mainBuffer ? cloneBuffer(state.mainBuffer) : null;
+  takeBuffer = state.takeBuffer ? cloneBuffer(state.takeBuffer) : null;
+  activeBufferType = state.activeBufferType || "main";
+  if(activeBufferType === "take" && !takeBuffer) activeBufferType = "main";
+  if(activeBufferType === "main" && !mainBuffer && takeBuffer) activeBufferType = "take";
+  selectedStart = state.selectedStart;
+  selectedEnd = state.selectedEnd;
+  playheadRatio = state.playheadRatio || 0;
+  viewportStart = state.viewportStart || 0;
+  mainFxBaked = !!state.mainFxBaked;
+  takeFxBaked = !!state.takeFxBaked;
+  mainFxBackup = state.mainFxBackup ? cloneBuffer(state.mainFxBackup) : null;
+  takeFxBackup = state.takeFxBackup ? cloneBuffer(state.takeFxBackup) : null;
+  clipboardBuffer = state.clipboardBuffer ? cloneBuffer(state.clipboardBuffer) : null;
+  clipboardSourceLabel = state.clipboardSourceLabel || "";
   clampViewport();
   invalidateWaveformCache();
   refreshPreview();
   updateButtons();
   fileStatus.classList.remove("extracting");
-  fileStatus.innerHTML = "✅ 直前の編集を元に戻しました。";
+  fileStatus.innerHTML = `✅ 元に戻しました。<br>${state.label || "直前の編集"}の前の状態に戻しています。残りアンドゥ：${undoStack.length}/${MAX_UNDO_STEPS}`;
+}
+
+function saveInitialEditState(label="読み込み直後"){
+  ensureAudioContext();
+  initialEditState = {
+    mainBuffer: mainBuffer ? cloneBuffer(mainBuffer) : null,
+    takeBuffer: takeBuffer ? cloneBuffer(takeBuffer) : null,
+    activeBufferType,
+    mainFxBaked,
+    takeFxBaked,
+    mainFxBackup: mainFxBackup ? cloneBuffer(mainFxBackup) : null,
+    takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null
+  };
+  initialEditLabel = label;
+  undoStack = [];
+  updateClipboardStatus();
+}
+
+function resetToInitialEditState(){
+  if(!initialEditState) return;
+
+  const ok = confirm(
+    "読み込み・録音直後の状態にリセットします。\n\n" +
+    "カット、貼り付け、結合、ミックス、反映済みエフェクトなどの編集内容は元に戻ります。\n" +
+    "よろしいですか？"
+  );
+  if(!ok) return;
+
+  mainBuffer = initialEditState.mainBuffer ? cloneBuffer(initialEditState.mainBuffer) : null;
+  takeBuffer = initialEditState.takeBuffer ? cloneBuffer(initialEditState.takeBuffer) : null;
+  activeBufferType = initialEditState.activeBufferType || (mainBuffer ? "main" : "take");
+  if(activeBufferType === "take" && !takeBuffer) activeBufferType = "main";
+  if(activeBufferType === "main" && !mainBuffer && takeBuffer) activeBufferType = "take";
+
+  mainFxBaked = !!initialEditState.mainFxBaked;
+  takeFxBaked = !!initialEditState.takeFxBaked;
+  mainFxBackup = initialEditState.mainFxBackup ? cloneBuffer(initialEditState.mainFxBackup) : null;
+  takeFxBackup = initialEditState.takeFxBackup ? cloneBuffer(initialEditState.takeFxBackup) : null;
+
+  selectedStart = null;
+  selectedEnd = null;
+  playheadRatio = 0;
+  viewportStart = 0;
+  clipboardBuffer = null;
+  clipboardSourceLabel = "";
+  undoStack = [];
+
+  resetFx();
+  clampViewport();
+  invalidateWaveformCache();
+  refreshPreview();
+  updateButtons();
+  fileStatus.classList.remove("extracting");
+  fileStatus.innerHTML = `✅ 最初の状態にリセットしました。<br>${initialEditLabel || "読み込み直後"}の音源に戻しています。`;
 }
 
 function copyAudioRange(buffer,startRatio,endRatio){
@@ -3066,6 +3144,12 @@ clearClipboardBtn.onclick=()=>{
 undoEditBtn.onclick=()=>{
   restoreUndoState();
 };
+
+if(resetInitialBtn){
+  resetInitialBtn.onclick=()=>{
+    resetToInitialEditState();
+  };
+}
 
 function hasSelection(){
   return activeBuffer() && selectedStart!==null && selectedEnd!==null && Math.abs(selectedEnd-selectedStart)>0.005;
