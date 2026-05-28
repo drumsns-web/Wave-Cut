@@ -859,6 +859,7 @@ audio{width:100%;margin:8px 0}
 .teb-btn.teb-cut:not(:disabled){color:#f87171;border-color:rgba(248,113,113,.3) !important;}
 .teb-btn.teb-copy:not(:disabled){color:#60a5fa;border-color:rgba(96,165,250,.3) !important;}
 .teb-btn.teb-paste:not(:disabled){color:#4ade80;border-color:rgba(74,222,128,.3) !important;}
+.teb-btn.teb-split{width:auto;min-width:38px;padding:0 5px !important;font-size:10px;font-weight:900;}
 .teb-btn.teb-split:not(:disabled){color:#fbbf24;border-color:rgba(251,191,36,.35) !important;}
 .teb-btn.teb-shift-l,.teb-btn.teb-shift-r{color:#fbbf24;}
 .teb-btn.teb-fx{color:#a78bfa;font-size:9px;font-weight:900;width:24px;}
@@ -1219,7 +1220,7 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutMain"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-split" id="tebSplitMain" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-split" id="tebSplitMain" title="現在位置または選択範囲の両端で分割" disabled>分割</button>
           <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartMain" data-track="main" title="最初に戻る">⏮</button>
@@ -1305,7 +1306,7 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutTake"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-split" id="tebSplitTake" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-split" id="tebSplitTake" title="現在位置または選択範囲の両端で分割" disabled>分割</button>
           <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartTake" data-track="take" title="最初に戻る">⏮</button>
@@ -1410,7 +1411,7 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutChorus"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-split" id="tebSplitChorus" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-split" id="tebSplitChorus" title="現在位置または選択範囲の両端で分割" disabled>分割</button>
           <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartChorus" data-track="chorus" title="最初に戻る">⏮</button>
@@ -4864,7 +4865,7 @@ function createExtraTrackHTML(id, emoji, name){
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCut${c1}"   title="選択をカット" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-split" id="tebSplit${c1}" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-split" id="tebSplit${c1}" title="現在位置または選択範囲の両端で分割" disabled>分割</button>
           <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestart${c1}" data-track="${id}" title="最初に戻る">⏮</button>
@@ -4876,6 +4877,38 @@ function createExtraTrackHTML(id, emoji, name){
           <button class="teb-btn teb-quick-shift pos" data-track="${id}" data-ms="500"  title="+500ms">⏩</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-edit" id="editClip${c1}" title="クリップ編集モード">✋</button>
+          <button class="teb-btn teb-fx" id="fxToggle${c1}" title="エフェクト">FX</button>
+        </div>
+        <div class="track-fx-panel" id="fxPanel${c1}" style="display:none">
+          <div class="track-fx-row">
+            <span class="track-fx-label">Gain</span>
+            <input type="range" class="track-fx-slider" data-track="${id}" data-fx="gain" min="-24" max="24" step="0.5" value="0">
+            <span class="track-fx-val" data-track="${id}" data-fx="gain">0dB</span>
+          </div>
+          <div class="track-fx-row">
+            <span class="track-fx-label">Reverb</span>
+            <input type="range" class="track-fx-slider" data-track="${id}" data-fx="reverb" min="0" max="100" step="1" value="0">
+            <span class="track-fx-val" data-track="${id}" data-fx="reverb">0%</span>
+          </div>
+          <div class="track-fx-row">
+            <span class="track-fx-label">Delay</span>
+            <input type="range" class="track-fx-slider" data-track="${id}" data-fx="delay" min="0" max="100" step="1" value="0">
+            <span class="track-fx-val" data-track="${id}" data-fx="delay">0%</span>
+          </div>
+          <div class="track-fx-row">
+            <span class="track-fx-label">Double</span>
+            <input type="range" class="track-fx-slider" data-track="${id}" data-fx="double" min="0" max="100" step="1" value="0">
+            <span class="track-fx-val" data-track="${id}" data-fx="double">0%</span>
+          </div>
+          <div class="track-fx-row">
+            <span class="track-fx-label">Radio</span>
+            <input type="range" class="track-fx-slider" data-track="${id}" data-fx="radio" min="0" max="100" step="1" value="0">
+            <span class="track-fx-val" data-track="${id}" data-fx="radio">0%</span>
+          </div>
+          <div class="track-fx-actions">
+            <button class="teb-btn track-fx-apply" data-track="${id}" style="width:auto;padding:0 8px;font-size:10px;color:#fbbf24;border-color:rgba(251,191,36,.35)!important;">反映</button>
+            <button class="teb-btn track-fx-reset" data-track="${id}" style="width:auto;padding:0 8px;font-size:10px;">リセット</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -4957,6 +4990,8 @@ function wireUpExtraTrack(id){
   if(editBtn) editBtn.onclick = () => setEditClipMode(!editClipMode);
   const delBtn = document.getElementById("delete" + c1 + "Btn");
   if(delBtn) delBtn.onclick = () => removeExtraTrack(id);
+  // トラック内FX
+  if(typeof _initTrackFX === "function") _initTrackFX();
   // トラック名編集
   const nameEl = document.getElementById("trackName" + c1);
   if(nameEl && typeof window._setupEditableTrackName === "function"){
@@ -6151,7 +6186,7 @@ function setupTrackEditBar(track){
     fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
   };
 
-  // ◇ 分割（現在位置、または選択範囲の両端で分割。音は削除しない）
+  // 分割ボタン（現在位置、または選択範囲の両端で分割。音は削除しない）
   const splitBtn_ = document.getElementById(`tebSplit${c}`);
   if(splitBtn_) splitBtn_.onclick = ()=>{
     const buf = bufferForTrack(track);
@@ -6174,7 +6209,7 @@ function setupTrackEditBar(track){
       return;
     }
     invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-    fileStatus.textContent = `◇ 分割しました（クリップ数: ${(trackClips[track] || []).length}）`;
+    fileStatus.textContent = `分割しました（クリップ数: ${(trackClips[track] || []).length}）`;
   };
 
   // ⎙ 貼り付け（既存音源と結合せず、別クリップとして追加）
@@ -6948,13 +6983,15 @@ document.addEventListener("keydown", (e) => {
 // ── トラック内FXパネル ───────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════
 function _initTrackFX(){
-  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  const capTrack = (typeof cap === "function")
+    ? cap
+    : (s => s.charAt(0).toUpperCase()+s.slice(1).replace(/_/g,""));
 
   // FXトグルボタン（FXパネルの開閉）
-  ['main','take','chorus'].forEach(track=>{
-    const toggleBtn = document.getElementById('fxToggle'+cap(track));
-    const panel     = document.getElementById('fxPanel'+cap(track));
-    if(!toggleBtn || !panel){ console.warn('FX elements missing for',track); return; }
+  document.querySelectorAll('.teb-fx[id^="fxToggle"]').forEach(toggleBtn=>{
+    const suffix = toggleBtn.id.replace('fxToggle','');
+    const panel = document.getElementById('fxPanel' + suffix);
+    if(!panel) return;
     toggleBtn.onclick = ()=>{
       const opening = panel.style.display === 'none';
       panel.style.display = opening ? 'block' : 'none';
@@ -6999,7 +7036,7 @@ function _initTrackFX(){
         invalidateWaveformCache();
         if(typeof drawStackedTimelines === "function") drawStackedTimelines();
         const names={main:'メイン',take:'トラック2',chorus:'トラック3'};
-        if(fileStatus) fileStatus.textContent = `${names[track]}にエフェクトを反映しました`;
+        if(fileStatus) fileStatus.textContent = `${names[track] || getTrackDisplayName(track)}にエフェクトを反映しました`;
       }
     };
   });
