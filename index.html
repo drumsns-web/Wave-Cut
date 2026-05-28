@@ -472,6 +472,98 @@ audio{width:100%;margin:8px 0}
   color:var(--muted);
 }
 
+
+
+/* ─── Mic / Record UI ─── */
+.mic-meter-wrap{
+  margin:10px 0 8px;
+  padding:10px;
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:16px;
+}
+.mic-meter-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:8px;
+}
+.mic-meter-state{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:900;
+  color:var(--green);
+}
+.mic-meter-bar{
+  position:relative;
+  height:18px;
+  border-radius:999px;
+  background:rgba(255,255,255,.10);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12);
+}
+.mic-meter-fill{
+  width:0%;
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#35e0a1 0%,#35e0a1 60%,#fbbf24 80%,#f87171 95%);
+  transition:width .05s linear;
+}
+.mic-meter-peak{
+  position:absolute;
+  top:0;
+  bottom:0;
+  width:3px;
+  background:#fde047;
+  box-shadow:0 0 6px #fde047;
+  left:0;
+  opacity:0;
+  transition:left .20s ease-out, background .1s;
+  pointer-events:none;
+}
+.mic-meter-peak.show{opacity:1;}
+.mic-meter-peak.clip{background:#ef4444;box-shadow:0 0 8px #ef4444;}
+.mic-meter-canvas{
+  width:100%;
+  height:56px;
+  margin:8px 0 0;
+  border-radius:12px;
+  background:#020617;
+  border:1px solid rgba(255,255,255,.08);
+}
+.mic-clip-warn{
+  display:none;
+  margin-top:5px;
+  padding:4px 8px;
+  background:rgba(239,68,68,.15);
+  border:1px solid rgba(239,68,68,.4);
+  border-radius:8px;
+  font-size:11px;
+  font-weight:800;
+  color:#fca5a5;
+}
+.mic-clip-warn.show{display:block;}
+.mic-gain-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:10px;
+}
+.mic-gain-row label{font-size:12px;white-space:nowrap;margin:0;}
+.mic-gain-row label span{color:#35e0a1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:800;}
+.mic-gain-row input[type="range"]{flex:1;}
+.mic-gain-reset{
+  width:auto !important;
+  padding:6px 10px !important;
+  margin:0 !important;
+  font-size:11px !important;
+  min-height:0 !important;
+  border-radius:8px !important;
+}
+.record-mode-note{font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px;}
+
 /* ─── Single File Editor Mode ─── */
 .single-mode-hidden{display:none !important;}
 #fileTarget option[hidden]{display:none;}
@@ -597,8 +689,8 @@ audio{width:100%;margin:8px 0}
 
 <main>
 
-<section class="card single-mode-hidden" aria-hidden="true">
-  <p class="section-title">Input <span class="pill">Mic</span></p>
+<section class="card">
+  <p class="section-title">🎙 Mic / Record <span class="pill" id="micStatusPill">OFF</span></p>
   <label>入力マイク</label>
   <select id="micSelect"></select>
   <div class="row">
@@ -607,9 +699,26 @@ audio{width:100%;margin:8px 0}
   </div>
   <button id="refreshMicBtn">マイク一覧を更新</button>
   <div id="micStatus" class="info">マイク：OFF（録音時に自動でONになります）</div>
+  <div class="mic-meter-wrap">
+    <div class="mic-meter-top">
+      <span>入力レベル確認</span>
+      <span class="mic-meter-state" id="micLevelText">OFF</span>
+    </div>
+    <div class="mic-meter-bar" id="micMeterBar">
+      <div class="mic-meter-fill" id="micLevelFill"></div>
+      <div class="mic-meter-peak" id="micMeterPeak"></div>
+    </div>
+    <canvas id="micLevelCanvas" class="mic-meter-canvas"></canvas>
+    <div class="mic-clip-warn" id="micClipWarn">⚠ 音割れ（クリップ）検出 — ゲインを下げてください</div>
+  </div>
+  <div class="mic-gain-row">
+    <label>マイクゲイン：<span id="micGainLabel">0 dB</span></label>
+    <input id="micGainSlider" type="range" min="-12" max="24" step="0.5" value="0">
+    <button id="micGainReset" class="mic-gain-reset">0dB</button>
+  </div>
   <div class="info">
-    録音の頭切れを防ぎたい場合は、先に「マイクON」を押してから録音開始してください。<br>
-    プライバシー重視の場合は、OFFのままでも録音開始時に自動でONになり、録音停止後に自動でOFFになります。
+    録音の頭切れを防ぎたい場合は、先に「マイクON」で入力レベルを確認してから録音してください。<br>
+    OFFのまま録音開始した場合は自動でONになり、録音停止後に自動でOFFになります。
   </div>
 
   <label>録音チャンネル</label>
@@ -621,15 +730,17 @@ audio{width:100%;margin:8px 0}
 
 <section class="card">
   <p class="section-title">Load / Join <span class="pill" id="modeLabel">単一音源</span></p>
-  <label class="single-mode-hidden">録音先</label>
-  <select id="recordTarget" class="single-mode-hidden">
-    <option value="main">メイン音源として録音</option>
-    <option value="take">追加録音として録音</option>
+  <label>マイク録音の反映先</label>
+  <select id="recordTarget">
+    <option value="main" selected>現在の音源を置き換え</option>
+    <option value="append">現在の音源の末尾に結合</option>
+    <option value="insert">現在位置に挿入</option>
   </select>
+  <div class="record-mode-note">単一音源エディタなので、録音後も編集対象は1本の音源のままです。</div>
 
-  <div class="row single-mode-hidden" aria-hidden="true">
-    <button id="recordBtn" class="primary">録音開始</button>
-    <button id="stopBtn" disabled>録音停止</button>
+  <div class="row">
+    <button id="recordBtn" class="primary">⏺ 録音開始</button>
+    <button id="stopBtn" disabled>■ 録音停止</button>
   </div>
 
   <label>ファイル読み込み先</label>
@@ -815,6 +926,16 @@ let animationFrameId = null;
 let waveformCache = null;
 let waveformCacheBuffer = null;
 let currentStream = null;
+let micAnalyser = null;
+let micLevelSource = null;
+let micLevelAnimationId = null;
+let micLevelData = null;
+let micGainNode = null;
+let micProcessedDestination = null;
+let micRawSource = null;
+let micPeakHold = 0;
+let micPeakHoldTime = 0;
+let micClipUntil = 0;
 let movWakeLock = null;
 let ffmpegInstance = null;
 let ffmpegLoaded = false;
@@ -831,6 +952,15 @@ const refreshMicBtn = document.getElementById("refreshMicBtn");
 const micOnBtn = document.getElementById("micOnBtn");
 const micOffBtn = document.getElementById("micOffBtn");
 const micStatus = document.getElementById("micStatus");
+const micLevelText = document.getElementById("micLevelText");
+const micLevelFill = document.getElementById("micLevelFill");
+const micLevelCanvas = document.getElementById("micLevelCanvas");
+const micLevelCtx = micLevelCanvas ? micLevelCanvas.getContext("2d") : null;
+const micGainSlider = document.getElementById("micGainSlider");
+const micGainLabel = document.getElementById("micGainLabel");
+const micGainReset = document.getElementById("micGainReset");
+const micMeterPeak = document.getElementById("micMeterPeak");
+const micClipWarn = document.getElementById("micClipWarn");
 const channelSelect = document.getElementById("channelSelect");
 const recordTarget = document.getElementById("recordTarget");
 const fileTarget = document.getElementById("fileTarget");
@@ -997,12 +1127,147 @@ window.addEventListener("resize",()=>{
   updateTimeLabel(activeBuffer());
 });
 
+
+function getMicGainLinear(){
+  const db = micGainSlider ? Number(micGainSlider.value) : 0;
+  return Math.pow(10, db / 20);
+}
+
+function updateMicGainLabel(){
+  if(!micGainSlider || !micGainLabel) return;
+  const v = Number(micGainSlider.value);
+  micGainLabel.textContent = `${v > 0 ? "+" : ""}${v} dB`;
+}
+
+if(micGainSlider){
+  micGainSlider.addEventListener("input", ()=>{
+    updateMicGainLabel();
+    if(micGainNode) micGainNode.gain.value = getMicGainLinear();
+  });
+  updateMicGainLabel();
+}
+
+if(micGainReset){
+  micGainReset.onclick = ()=>{
+    if(!micGainSlider) return;
+    micGainSlider.value = 0;
+    micGainSlider.dispatchEvent(new Event("input"));
+  };
+}
+
+function drawMicLevelOff(){
+  if(micLevelText) micLevelText.textContent = "OFF";
+  if(micLevelFill) micLevelFill.style.width = "0%";
+  if(micMeterPeak) micMeterPeak.classList.remove("show","clip");
+  if(micClipWarn) micClipWarn.classList.remove("show");
+  if(micLevelCtx && micLevelCanvas){
+    const dpr = window.devicePixelRatio || 1;
+    micLevelCanvas.width = Math.max(1, micLevelCanvas.clientWidth * dpr);
+    micLevelCanvas.height = Math.max(1, micLevelCanvas.clientHeight * dpr);
+    micLevelCtx.clearRect(0,0,micLevelCanvas.width,micLevelCanvas.height);
+  }
+}
+
+function stopMicLevelMeter(){
+  if(micLevelAnimationId){
+    cancelAnimationFrame(micLevelAnimationId);
+    micLevelAnimationId = null;
+  }
+  try{ if(micLevelSource) micLevelSource.disconnect(); }catch(e){}
+  try{ if(micAnalyser) micAnalyser.disconnect(); }catch(e){}
+  micLevelSource = null;
+  micAnalyser = null;
+  micLevelData = null;
+  drawMicLevelOff();
+}
+
+function startMicLevelMeter(stream){
+  if(!stream || !micLevelCtx || !micLevelCanvas) return;
+  try{
+    stopMicLevelMeter();
+    ensureAudioContext();
+    micAnalyser = audioContext.createAnalyser();
+    micAnalyser.fftSize = 1024;
+    micAnalyser.smoothingTimeConstant = 0.35;
+    micLevelSource = audioContext.createMediaStreamSource(stream);
+    micLevelSource.connect(micAnalyser);
+    micLevelData = new Uint8Array(micAnalyser.fftSize);
+
+    const draw = ()=>{
+      if(!micAnalyser || !micLevelData) return;
+      micAnalyser.getByteTimeDomainData(micLevelData);
+
+      let peak = 0;
+      let sum = 0;
+      for(let i=0;i<micLevelData.length;i++){
+        const v = (micLevelData[i] - 128) / 128;
+        const a = Math.abs(v);
+        peak = Math.max(peak, a);
+        sum += v*v;
+      }
+      const rms = Math.sqrt(sum / micLevelData.length);
+      const pct = Math.max(0, Math.min(100, Math.round(Math.max(rms * 180, peak * 100))));
+      const now = performance.now();
+      if(peak > micPeakHold || now - micPeakHoldTime > 900){
+        micPeakHold = peak;
+        micPeakHoldTime = now;
+      }else{
+        micPeakHold *= 0.985;
+      }
+      const peakPct = Math.max(0, Math.min(100, Math.round(micPeakHold * 100)));
+      const clipActive = peak >= 0.985;
+      if(clipActive) micClipUntil = now + 900;
+      const showClip = now < micClipUntil;
+
+      if(micLevelText) micLevelText.textContent = showClip ? `CLIP ${pct}%` : `${pct}%`;
+      if(micLevelFill) micLevelFill.style.width = `${pct}%`;
+      if(micMeterPeak){
+        micMeterPeak.classList.add("show");
+        micMeterPeak.classList.toggle("clip", showClip);
+        micMeterPeak.style.left = `calc(${peakPct}% - 2px)`;
+      }
+      if(micClipWarn) micClipWarn.classList.toggle("show", showClip);
+
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.max(1, Math.floor(micLevelCanvas.clientWidth * dpr));
+      const h = Math.max(1, Math.floor(micLevelCanvas.clientHeight * dpr));
+      if(micLevelCanvas.width !== w || micLevelCanvas.height !== h){
+        micLevelCanvas.width = w;
+        micLevelCanvas.height = h;
+      }
+      micLevelCtx.clearRect(0,0,w,h);
+      micLevelCtx.strokeStyle = showClip ? "#ef4444" : (pct > 60 ? "#fbbf24" : "#35e0a1");
+      micLevelCtx.lineWidth = 2 * dpr;
+      micLevelCtx.beginPath();
+      const step = Math.max(1, Math.floor(micLevelData.length / Math.max(1, w)));
+      for(let x=0, i=0; x<w && i<micLevelData.length; x++, i+=step){
+        const y = (micLevelData[i] / 255) * h;
+        if(x===0) micLevelCtx.moveTo(x,y);
+        else micLevelCtx.lineTo(x,y);
+      }
+      micLevelCtx.stroke();
+
+      micLevelAnimationId = requestAnimationFrame(draw);
+    };
+    draw();
+  }catch(e){
+    console.warn("mic level meter failed", e);
+    drawMicLevelOff();
+  }
+}
+
 function updateMicStatus(isOn, message){
   if(!micStatus) return;
   micStatus.textContent = message || (isOn ? "マイク：ON" : "マイク：OFF（録音時に自動でONになります）");
   micStatus.style.color = isOn ? "var(--green)" : "var(--muted)";
   if(micOnBtn) micOnBtn.disabled = isOn;
   if(micOffBtn) micOffBtn.disabled = !isOn;
+  const pill = document.getElementById("micStatusPill");
+  if(pill){
+    pill.textContent = isOn ? "ON" : "OFF";
+    pill.style.background = isOn ? "rgba(53,224,161,.18)" : "rgba(53,224,161,.12)";
+    pill.style.color = isOn ? "#35e0a1" : "var(--green)";
+  }
 }
 
 function stopCurrentMicStream(){
@@ -1014,15 +1279,31 @@ function stopCurrentMicStream(){
     }
     currentStream = null;
   }
+  try{ if(micRawSource) micRawSource.disconnect(); }catch(e){}
+  try{ if(micGainNode) micGainNode.disconnect(); }catch(e){}
+  try{ if(micProcessedDestination) micProcessedDestination.disconnect && micProcessedDestination.disconnect(); }catch(e){}
+  micRawSource = null;
+  micGainNode = null;
+  micProcessedDestination = null;
+  micPeakHold = 0;
+  micPeakHoldTime = 0;
+  micClipUntil = 0;
+  stopMicLevelMeter();
   updateMicStatus(false, "マイク：OFF（録音時に自動でONになります）");
 }
 
 async function ensureMicStream(){
   ensureAudioContext();
 
+  if(audioContext.state === "suspended"){
+    try{ await audioContext.resume(); }catch(e){}
+  }
+
   if(currentStream && currentStream.getAudioTracks().some(t=>t.readyState === "live")){
+    if(micGainNode) micGainNode.gain.value = getMicGainLinear();
+    startMicLevelMeter(currentStream);
     updateMicStatus(true, "マイク：ON");
-    return currentStream;
+    return micProcessedDestination ? micProcessedDestination.stream : currentStream;
   }
 
   const channelCount = Number(channelSelect.value);
@@ -1040,12 +1321,28 @@ async function ensureMicStream(){
 
   updateMicStatus(false, "マイクを起動中...");
   currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+  try{
+    micRawSource = audioContext.createMediaStreamSource(currentStream);
+    micGainNode = audioContext.createGain();
+    micGainNode.gain.value = getMicGainLinear();
+    micProcessedDestination = audioContext.createMediaStreamDestination();
+    micRawSource.connect(micGainNode);
+    micGainNode.connect(micProcessedDestination);
+  }catch(e){
+    console.warn("mic gain route failed; using raw stream", e);
+    micRawSource = null;
+    micGainNode = null;
+    micProcessedDestination = null;
+  }
+
+  startMicLevelMeter(currentStream);
   updateMicStatus(true, "マイク：ON");
 
   // 権限取得後ならラベル付きで一覧を更新できる
   await loadMics(false).catch(()=>{});
 
-  return currentStream;
+  return micProcessedDestination ? micProcessedDestination.stream : currentStream;
 }
 
 async function loadMics(requestPermission=false){
@@ -1160,7 +1457,9 @@ deleteTakeBtn.onclick = ()=>{
 };
 
 recordTarget.onchange=()=>{
-  modeLabel.textContent = recordTarget.value === "take" ? "追加録音" : "メイン録音";
+  if(recordTarget.value === "append") modeLabel.textContent = "録音を末尾に結合";
+  else if(recordTarget.value === "insert") modeLabel.textContent = "録音を現在位置に挿入";
+  else modeLabel.textContent = "録音で置き換え";
 };
 
 recordBtn.onclick = async()=>{
@@ -1170,15 +1469,16 @@ recordBtn.onclick = async()=>{
   selectedEnd=null;
   playheadRatio=0;
 
+  let recordingStream;
   try{
-    currentStream = await ensureMicStream();
+    recordingStream = await ensureMicStream();
   }catch(e){
     alert("録音のためにマイクをONにできませんでした: " + e.message);
     stopCurrentMicStream();
     return;
   }
 
-  mediaRecorder = new MediaRecorder(currentStream);
+  mediaRecorder = new MediaRecorder(recordingStream);
 
   mediaRecorder.ondataavailable = e=>{
     if(e.data.size>0) recordedChunks.push(e.data);
@@ -1190,23 +1490,33 @@ recordBtn.onclick = async()=>{
       const arrayBuffer = await blob.arrayBuffer();
       const decoded = await audioContext.decodeAudioData(arrayBuffer);
 
-      if(recordTarget.value === "take"){
-        takeBuffer = decoded;
-        takeFxBaked = false;
-        takeFxBackup = null;
-        activeBufferType = "take";
-        fileStatus.textContent = `追加録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
+      activeBufferType = "main";
+      saveUndoState("録音");
+
+      if(recordTarget.value === "append" && mainBuffer){
+        mainBuffer = concatBuffers(mainBuffer, decoded);
+        playheadRatio = Math.min(1, Math.max(0, (mainBuffer.length - decoded.length) / mainBuffer.length));
+        fileStatus.textContent = `録音を末尾に結合しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(mainBuffer.duration)}`;
+      }else if(recordTarget.value === "insert" && mainBuffer){
+        const beforeLength = mainBuffer.length;
+        mainBuffer = await insertBufferAtRatio(mainBuffer, decoded, playheadRatio || 0);
+        playheadRatio = Math.min(1, Math.max(0, (beforeLength * (playheadRatio || 0) + decoded.length) / mainBuffer.length));
+        fileStatus.textContent = `録音を現在位置に挿入しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(mainBuffer.duration)}`;
       }else{
         mainBuffer = decoded;
-        mainFxBaked = false;
-        mainFxBackup = null;
-        activeBufferType = "main";
-        fileStatus.textContent = `メイン録音を作成しました / 長さ ${formatTime(decoded.duration)}`;
+        playheadRatio = 0;
+        saveInitialEditState("録音直後");
+        fileStatus.textContent = `録音で音源を作成しました / 長さ ${formatTime(decoded.duration)}`;
       }
 
+      mainFxBaked = false;
+      mainFxBackup = null;
+      clearSplitMarkers();
+      clearFxBackupForActiveEdit();
+      selectedStart = null;
+      selectedEnd = null;
       invalidateWaveformCache();
-      playheadRatio=0;
-      saveInitialEditState(recordTarget.value === "take" ? "追加録音直後" : "メイン録音直後");
+      centerViewportOnPlayhead();
       resetFx();
       refreshPreview();
       updateButtons();
@@ -1232,7 +1542,7 @@ stopBtn.onclick=()=>{
   }
   recordBtn.disabled=false;
   stopBtn.disabled=true;
-  recordBtn.textContent="録音開始";
+  recordBtn.textContent="⏺ 録音開始";
   recordBtn.classList.remove("red");
 };
 
@@ -3623,7 +3933,6 @@ document.addEventListener("keydown", (e) => {
     const fileTarget = document.getElementById('fileTarget');
     const modeLabel = document.getElementById('modeLabel');
     const sourceStatus = document.getElementById('sourceStatus');
-    if(recordTarget) recordTarget.value = 'main';
     if(fileTarget && fileTarget.value === 'take') fileTarget.value = 'append';
     if(modeLabel) modeLabel.textContent = '単一音源';
     if(sourceStatus && sourceStatus.textContent.includes('メイン音源')){
