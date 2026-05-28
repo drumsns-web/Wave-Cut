@@ -670,6 +670,72 @@ audio{width:100%;margin:8px 0}
 .teb-sep{width:1px;height:18px;background:rgba(255,255,255,.10);flex-shrink:0;margin:0 1px;}
 .compact-nudge{margin-top:8px;}
 .compact-advanced-status{margin-top:8px;}
+
+/* ─── 2 Track Lite UI ─── */
+.two-track-panel{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin:10px 0 8px;
+}
+.two-track-card{
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:14px;
+  padding:8px;
+  cursor:pointer;
+}
+.two-track-card.active{
+  border-color:rgba(53,224,161,.55);
+  box-shadow:0 0 0 1px rgba(53,224,161,.18), 0 0 18px rgba(53,224,161,.12);
+}
+.two-track-name-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:5px;}
+.two-track-name{
+  font-size:12px;
+  font-weight:900;
+  color:#f8fafc;
+  border-bottom:1px dashed rgba(255,255,255,.22);
+  outline:none;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.two-track-name:focus{
+  color:#facc15;
+  background:rgba(250,204,21,.10);
+  border-radius:4px;
+  border-bottom-color:rgba(250,204,21,.60);
+}
+.two-track-badge{
+  font-size:9px;
+  color:#35e0a1;
+  background:rgba(53,224,161,.10);
+  border:1px solid rgba(53,224,161,.25);
+  border-radius:999px;
+  padding:2px 6px;
+  white-space:nowrap;
+}
+.two-track-meta{font-size:10px;color:var(--muted);line-height:1.4;min-height:28px;}
+.two-track-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:6px;}
+.two-track-actions button{padding:6px 4px !important;margin:0 !important;min-height:0 !important;font-size:10px !important;border-radius:8px !important;}
+.hand-mode-row{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  margin:8px 0;
+  padding:7px;
+  border-radius:12px;
+  background:rgba(251,191,36,.08);
+  border:1px solid rgba(251,191,36,.18);
+}
+.hand-mode-row button{width:auto;min-width:88px;padding:8px 10px !important;margin:0 !important;font-size:12px !important;border-radius:10px !important;}
+.hand-mode-row .hand-active{background:linear-gradient(180deg,#fbbf24,#d97706) !important;color:#111827 !important;}
+.hand-help{font-size:11px;color:#fbbf24;line-height:1.45;}
+body.hand-grab-mode #waveCanvas{cursor:grab !important;}
+body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
+@media(max-width:560px){.two-track-panel{grid-template-columns:1fr;}}
+
 @media(max-width:560px){
   .single-track-lane{grid-template-columns:84px 1fr;}
   .single-track-wave-wrap #waveCanvas{height:84px;}
@@ -684,7 +750,7 @@ audio{width:100%;margin:8px 0}
 
 <header>
   <div class="logo">Wave<span>Cut</span></div>
-  <div class="sub">単一音源の波形編集：読込・カット・トリム・結合・FX・書き出し</div>
+  <div class="sub">最大2トラック対応：読込・録音・カット・ドラッグ移動・FX・MIX書き出し</div>
 </header>
 
 <main>
@@ -729,14 +795,16 @@ audio{width:100%;margin:8px 0}
 </section>
 
 <section class="card">
-  <p class="section-title">Load / Join <span class="pill" id="modeLabel">単一音源</span></p>
+  <p class="section-title">Load / Record <span class="pill" id="modeLabel">2トラック</span></p>
   <label>マイク録音の反映先</label>
   <select id="recordTarget">
-    <option value="main" selected>現在の音源を置き換え</option>
-    <option value="append">現在の音源の末尾に結合</option>
-    <option value="insert">現在位置に挿入</option>
+    <option value="replace-active" selected>選択中トラックを置き換え</option>
+    <option value="append-active">選択中トラックの末尾に結合</option>
+    <option value="insert-active">選択中トラックの現在位置に挿入</option>
+    <option value="replace-main">トラック1を置き換え</option>
+    <option value="replace-take">トラック2を置き換え</option>
   </select>
-  <div class="record-mode-note">単一音源エディタなので、録音後も編集対象は1本の音源のままです。</div>
+  <div class="record-mode-note">録音は選択中トラック、または指定トラックに反映できます。録音停止後は自動でマイクOFFになります。</div>
 
   <div class="row">
     <button id="recordBtn" class="primary">⏺ 録音開始</button>
@@ -745,13 +813,14 @@ audio{width:100%;margin:8px 0}
 
   <label>ファイル読み込み先</label>
   <select id="fileTarget">
-    <option value="append" selected>現在の音源の末尾に結合</option>
-    <option value="main">現在の音源を置き換え</option>
-    <option value="take" disabled hidden>追加音源として読み込み</option>
+    <option value="main" selected>トラック1を置き換え</option>
+    <option value="main-append">トラック1の末尾に結合</option>
+    <option value="take">トラック2を置き換え</option>
+    <option value="take-append">トラック2の末尾に結合</option>
   </select>
 
   <label>ファイル読み込み（音声・動画対応）</label>
-  <div class="info">1つの編集タイムラインに読み込みます。2つ目以降のファイルは「末尾に結合」または「置き換え」を選べます。</div>
+  <div class="info">最大2トラックに読み込めます。トラック名はWave Edit内で直接編集できます。</div>
   <div class="file-row">
     <input id="fileInput" class="file-hidden" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.webm,.mp4,.mov,.m4v,.avi,.mkv" />
     <label for="fileInput" class="file-button">ファイルを選択</label>
@@ -763,14 +832,49 @@ audio{width:100%;margin:8px 0}
   <video id="mediaProbe" playsinline muted style="display:none"></video>
 
   <div class="row">
-    <button id="deleteMainBtn" disabled class="red">音源を削除</button>
-    <button id="deleteTakeBtn" disabled class="red single-mode-hidden">追加録音を削除</button>
+    <button id="deleteMainBtn" disabled class="red">トラック1を削除</button>
+    <button id="deleteTakeBtn" disabled class="red">トラック2を削除</button>
   </div>
 </section>
 
 <section class="card">
   <p class="section-title">Wave Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
   <div id="sourceStatus" class="info">現在表示：未読み込み</div>
+
+  <div class="two-track-panel" id="twoTrackPanel">
+    <div class="two-track-card active" id="trackCardMain" data-track="main">
+      <div class="two-track-name-row">
+        <div class="two-track-name" id="trackNameMain" contenteditable="true" spellcheck="false">トラック1</div>
+        <span class="two-track-badge" id="trackBadgeMain">選択中</span>
+      </div>
+      <div class="two-track-meta" id="trackMetaMain">未読み込み</div>
+      <div class="two-track-actions">
+        <button type="button" id="selectMainBtn2" class="green">選択</button>
+        <button type="button" id="clearMainBtn2" class="red">削除</button>
+      </div>
+    </div>
+    <div class="two-track-card" id="trackCardTake" data-track="take">
+      <div class="two-track-name-row">
+        <div class="two-track-name" id="trackNameTake" contenteditable="true" spellcheck="false">トラック2</div>
+        <span class="two-track-badge" id="trackBadgeTake">空</span>
+      </div>
+      <div class="two-track-meta" id="trackMetaTake">未読み込み</div>
+      <div class="two-track-actions">
+        <button type="button" id="selectTakeBtn2" class="green">選択</button>
+        <button type="button" id="clearTakeBtn2" class="red">削除</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="hand-mode-row">
+    <button type="button" id="handMoveBtn">✋ 手のひら</button>
+    <div class="hand-help" id="handHelp">OFF：波形ドラッグは範囲選択。ON：選択中トラックをつかんで左右に移動。</div>
+  </div>
+
+  <div class="row">
+    <button type="button" id="mixPreviewBtn" class="primary" disabled>▶ 2トラックMIX再生</button>
+    <button type="button" id="mixStopBtn" disabled>■ 停止</button>
+  </div>
 
   <div class="row">
     <div>
@@ -791,9 +895,9 @@ audio{width:100%;margin:8px 0}
 
   <div class="single-track-lane" id="singleTrackLane">
     <div class="single-track-side">
-      <div class="single-track-name">🎵 編集音源</div>
-      <div class="single-track-sub">1つの音源をカット・トリム・結合・FX・保存</div>
-      <div class="mini-status">単一音源</div>
+      <div class="single-track-name" id="activeTrackEditorName">🎵 トラック1</div>
+      <div class="single-track-sub" id="activeTrackEditorSub">選択中トラックを編集</div>
+      <div class="mini-status" id="activeTrackOffsetLabel">Offset 0.00s</div>
     </div>
 
     <div class="single-track-wave-area">
@@ -897,7 +1001,7 @@ audio{width:100%;margin:8px 0}
     <button id="saveMp3Btn" disabled class="green">MP3保存</button>
   </div>
   <p class="info">
-    編集中の単一音源をWAVまたはMP3で保存します。iPhoneではGitHub Pages / NetlifyなどHTTPS環境で使ってください。
+    2トラックをオフセット込みでMIXしてWAVまたはMP3保存します。iPhoneではGitHub Pages / NetlifyなどHTTPS環境で使ってください。
   </p>
 </section>
 
@@ -905,8 +1009,8 @@ audio{width:100%;margin:8px 0}
 
 <script>
 
-// Single File Editor Mode: マルチトラック/追録UIは使わず、編集対象は常にmainBufferに固定
-window.WAVECUT_SINGLE_FILE_MODE = true;
+// 2 Track Lite Mode: 編集対象は選択中トラック、書き出しは2トラックMIX
+window.WAVECUT_SINGLE_FILE_MODE = false;
 let audioContext;
 let mediaRecorder;
 let recordedChunks = [];
@@ -946,6 +1050,12 @@ const MAX_UNDO_STEPS = 15;
 let initialEditState = null;
 let initialEditLabel = "";
 let splitMarkers = [];
+let trackOffsets = { main:0, take:0 };
+let trackNames = { main:"トラック1", take:"トラック2" };
+let handMoveMode = false;
+let handDragStartX = 0;
+let handDragStartOffset = 0;
+let isHandDragging = false;
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
@@ -1020,6 +1130,25 @@ const timeRulerCtx = timeRulerCanvas.getContext("2d");
 const bigTimeLabel = document.getElementById("bigTimeLabel");
 const wavePlayBtn = document.getElementById("wavePlayBtn");
 const wavePauseBtn = document.getElementById("wavePauseBtn");
+const trackCardMain = document.getElementById("trackCardMain");
+const trackCardTake = document.getElementById("trackCardTake");
+const trackNameMain = document.getElementById("trackNameMain");
+const trackNameTake = document.getElementById("trackNameTake");
+const trackBadgeMain = document.getElementById("trackBadgeMain");
+const trackBadgeTake = document.getElementById("trackBadgeTake");
+const trackMetaMain = document.getElementById("trackMetaMain");
+const trackMetaTake = document.getElementById("trackMetaTake");
+const selectMainBtn2 = document.getElementById("selectMainBtn2");
+const selectTakeBtn2 = document.getElementById("selectTakeBtn2");
+const clearMainBtn2 = document.getElementById("clearMainBtn2");
+const clearTakeBtn2 = document.getElementById("clearTakeBtn2");
+const activeTrackEditorName = document.getElementById("activeTrackEditorName");
+const activeTrackEditorSub = document.getElementById("activeTrackEditorSub");
+const activeTrackOffsetLabel = document.getElementById("activeTrackOffsetLabel");
+const handMoveBtn = document.getElementById("handMoveBtn");
+const handHelp = document.getElementById("handHelp");
+const mixPreviewBtn = document.getElementById("mixPreviewBtn");
+const mixStopBtn = document.getElementById("mixStopBtn");
 
 function ensureAudioContext(){
   if(!audioContext) audioContext = new AudioContext();
@@ -1457,9 +1586,14 @@ deleteTakeBtn.onclick = ()=>{
 };
 
 recordTarget.onchange=()=>{
-  if(recordTarget.value === "append") modeLabel.textContent = "録音を末尾に結合";
-  else if(recordTarget.value === "insert") modeLabel.textContent = "録音を現在位置に挿入";
-  else modeLabel.textContent = "録音で置き換え";
+  const map = {
+    "replace-active":"選択中へ録音",
+    "append-active":"選択中末尾へ録音",
+    "insert-active":"選択中へ挿入",
+    "replace-main":"T1へ録音",
+    "replace-take":"T2へ録音"
+  };
+  modeLabel.textContent = map[recordTarget.value] || "2トラック";
 };
 
 recordBtn.onclick = async()=>{
@@ -1490,27 +1624,36 @@ recordBtn.onclick = async()=>{
       const arrayBuffer = await blob.arrayBuffer();
       const decoded = await audioContext.decodeAudioData(arrayBuffer);
 
-      activeBufferType = "main";
+      let targetTrack = activeBufferType;
+      let mode = recordTarget.value;
+      if(mode === "replace-main") targetTrack = "main";
+      if(mode === "replace-take") targetTrack = "take";
+      const previousActive = activeBufferType;
+      activeBufferType = targetTrack;
       saveUndoState("録音");
 
-      if(recordTarget.value === "append" && mainBuffer){
-        mainBuffer = concatBuffers(mainBuffer, decoded);
-        playheadRatio = Math.min(1, Math.max(0, (mainBuffer.length - decoded.length) / mainBuffer.length));
-        fileStatus.textContent = `録音を末尾に結合しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(mainBuffer.duration)}`;
-      }else if(recordTarget.value === "insert" && mainBuffer){
-        const beforeLength = mainBuffer.length;
-        mainBuffer = await insertBufferAtRatio(mainBuffer, decoded, playheadRatio || 0);
-        playheadRatio = Math.min(1, Math.max(0, (beforeLength * (playheadRatio || 0) + decoded.length) / mainBuffer.length));
-        fileStatus.textContent = `録音を現在位置に挿入しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(mainBuffer.duration)}`;
+      const current = activeBuffer();
+      const isAppend = mode === "append-active";
+      const isInsert = mode === "insert-active";
+
+      if(isAppend && current){
+        setActiveBuffer(concatBuffers(current, decoded));
+        playheadRatio = Math.min(1, Math.max(0, (activeBuffer().length - decoded.length) / activeBuffer().length));
+        fileStatus.textContent = `${getTrackLabel(targetTrack)}の末尾に録音を結合しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(activeBuffer().duration)}`;
+      }else if(isInsert && current){
+        const beforeLength = current.length;
+        setActiveBuffer(await insertBufferAtRatio(current, decoded, playheadRatio || 0));
+        playheadRatio = Math.min(1, Math.max(0, (beforeLength * (playheadRatio || 0) + decoded.length) / activeBuffer().length));
+        fileStatus.textContent = `${getTrackLabel(targetTrack)}の現在位置に録音を挿入しました / 録音 ${formatTime(decoded.duration)} / 合計 ${formatTime(activeBuffer().duration)}`;
       }else{
-        mainBuffer = decoded;
+        setActiveBuffer(decoded);
         playheadRatio = 0;
-        saveInitialEditState("録音直後");
-        fileStatus.textContent = `録音で音源を作成しました / 長さ ${formatTime(decoded.duration)}`;
+        saveInitialEditState(`${getTrackLabel(targetTrack)} 録音直後`);
+        fileStatus.textContent = `${getTrackLabel(targetTrack)}を録音で作成しました / 長さ ${formatTime(decoded.duration)}`;
       }
 
-      mainFxBaked = false;
-      mainFxBackup = null;
+      setActiveFxBaked(false);
+      clearActiveFxBackup();
       clearSplitMarkers();
       clearFxBackupForActiveEdit();
       selectedStart = null;
@@ -2448,30 +2591,20 @@ fileInput.onchange = async(e)=>{
     const decoded = await decodeFileToAudioBuffer(file);
 
     let targetText = "";
+    const targetTrack = fileTarget.value.startsWith("take") ? "take" : "main";
+    const appendMode = fileTarget.value.endsWith("append");
+    activeBufferType = targetTrack;
 
-    if(fileTarget.value === "append"){
-      if(mainBuffer){
-        mainBuffer = concatBuffers(mainBuffer, decoded);
-        targetText = "タイムライン末尾に追加";
-      }else{
-        mainBuffer = decoded;
-        targetText = "メイン音源として新規読み込み";
-      }
-      mainFxBaked = false;
-      activeBufferType = "main";
-    }else if(fileTarget.value === "take"){
-      takeBuffer = decoded;
-      takeFxBaked = false;
-      takeFxBackup = null;
-      activeBufferType = "take";
-      targetText = "追加音源として読み込み";
+    if(appendMode && activeBuffer()){
+      setActiveBuffer(concatBuffers(activeBuffer(), decoded));
+      targetText = `${getTrackLabel(targetTrack)}の末尾に追加`;
     }else{
-      mainBuffer = decoded;
-      mainFxBaked = false;
-      mainFxBackup = null;
-      activeBufferType = "main";
-      targetText = "メイン音源を置き換え";
+      setActiveBuffer(decoded);
+      trackOffsets[targetTrack] = 0;
+      targetText = `${getTrackLabel(targetTrack)}を置き換え`;
     }
+    setActiveFxBaked(false);
+    clearActiveFxBackup();
 
     saveInitialEditState(targetText);
     setFileStatus(file, targetText, decoded);
@@ -2516,8 +2649,12 @@ function updateButtons(){
   undoEditBtn.textContent = `元に戻す（${undoStack.length}/${MAX_UNDO_STEPS}）`;
   if(resetInitialBtn) resetInitialBtn.disabled = !initialEditState;
   updateClipboardStatus();
-  saveWavBtn.disabled = !mainBuffer;
-  saveMp3Btn.disabled = !mainBuffer;
+  updateTrackUi();
+  const hasAnyTrack = !!(mainBuffer || takeBuffer);
+  saveWavBtn.disabled = !hasAnyTrack;
+  saveMp3Btn.disabled = !hasAnyTrack;
+  if(mixPreviewBtn) mixPreviewBtn.disabled = !hasAnyTrack;
+  if(mixStopBtn) mixStopBtn.disabled = !hasAnyTrack;
   deleteMainBtn.disabled = !mainBuffer;
   deleteTakeBtn.disabled = !takeBuffer;
   applyFxBtn.disabled = !hasActive;
@@ -3277,6 +3414,14 @@ function refreshSelectionUi(){
 
 canvas.addEventListener("pointerdown",e=>{
   if(!activeBuffer()) return;
+  if(handMoveMode){
+    isHandDragging = true;
+    handDragStartX = e.clientX;
+    handDragStartOffset = trackOffsets[activeBufferType] || 0;
+    canvas.classList.add("dragging");
+    try{ canvas.setPointerCapture(e.pointerId); }catch(_e){}
+    return;
+  }
   isDragging=true;
   beforePointerStart = selectedStart;
   beforePointerEnd = selectedEnd;
@@ -3287,6 +3432,16 @@ canvas.addEventListener("pointerdown",e=>{
 });
 
 canvas.addEventListener("pointermove",e=>{
+  if(handMoveMode && isHandDragging && activeBuffer()){
+    const rect = canvas.getBoundingClientRect();
+    const projectDuration = Math.max(getProjectDuration(), activeBuffer().duration || 1, 1);
+    const visibleDuration = projectDuration / Math.max(zoomLevel, 1);
+    const deltaSec = ((e.clientX - handDragStartX) / Math.max(1, rect.width)) * visibleDuration;
+    trackOffsets[activeBufferType] = Math.max(0, handDragStartOffset + deltaSec);
+    updateTrackUi();
+    drawWaveform(activeBuffer());
+    return;
+  }
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
   refreshSelectionUi();
@@ -3294,6 +3449,13 @@ canvas.addEventListener("pointermove",e=>{
 
 canvas.addEventListener("pointerup",e=>{
   if(!activeBuffer()) return;
+  if(handMoveMode && isHandDragging){
+    isHandDragging = false;
+    canvas.classList.remove("dragging");
+    updateTrackUi();
+    updateButtons();
+    return;
+  }
   const upRatio = getCanvasRatio(e);
   const moved = Math.abs(upRatio - pointerDownRatio);
   isDragging=false;
@@ -3310,6 +3472,12 @@ canvas.addEventListener("pointerup",e=>{
 });
 
 canvas.addEventListener("pointercancel",()=>{
+  if(isHandDragging){
+    isHandDragging=false;
+    canvas.classList.remove("dragging");
+    updateTrackUi();
+    return;
+  }
   if(!isDragging) return;
   isDragging=false;
   refreshSelectionUi();
@@ -3701,17 +3869,15 @@ function mixBuffers(a,b){
 }
 
 saveWavBtn.onclick=async()=>{
-  if(!mainBuffer) return;
-  activeBufferType="main";
-  const buffer = mainFxBaked ? cloneBuffer(mainBuffer) : await processEffects(mainBuffer);
-  downloadBlob(audioBufferToWavBlob(buffer),"wavecut.wav");
+  const buffer = await renderProjectBuffer();
+  if(!buffer) return;
+  downloadBlob(audioBufferToWavBlob(buffer),"wavecut_2track_mix.wav");
 };
 
 saveMp3Btn.onclick=async()=>{
-  if(!mainBuffer) return;
-  activeBufferType="main";
-  const buffer = mainFxBaked ? cloneBuffer(mainBuffer) : await processEffects(mainBuffer);
-  downloadBlob(audioBufferToMp3Blob(buffer),"wavecut.mp3");
+  const buffer = await renderProjectBuffer();
+  if(!buffer) return;
+  downloadBlob(audioBufferToMp3Blob(buffer),"wavecut_2track_mix.mp3");
 };
 
 function audioBufferToWavBlob(buffer){
@@ -3926,23 +4092,165 @@ document.addEventListener("keydown", (e) => {
 });
 
 
-// ─── Single File Editor Mode UI cleanup ───
-(function(){
-  function applySingleModeLabels(){
-    const recordTarget = document.getElementById('recordTarget');
-    const fileTarget = document.getElementById('fileTarget');
-    const modeLabel = document.getElementById('modeLabel');
-    const sourceStatus = document.getElementById('sourceStatus');
-    if(fileTarget && fileTarget.value === 'take') fileTarget.value = 'append';
-    if(modeLabel) modeLabel.textContent = '単一音源';
-    if(sourceStatus && sourceStatus.textContent.includes('メイン音源')){
-      sourceStatus.textContent = sourceStatus.textContent.replace('メイン音源','編集音源');
-    }
-    activeBufferType = 'main';
+// ─── 2 Track Lite helpers ───
+function getTrackLabel(track){
+  return track === "take" ? (trackNames.take || "トラック2") : (trackNames.main || "トラック1");
+}
+
+function getBufferForTrack(track){
+  return track === "take" ? takeBuffer : mainBuffer;
+}
+
+function setBufferForTrack(track, buffer){
+  if(track === "take") takeBuffer = buffer;
+  else mainBuffer = buffer;
+  invalidateWaveformCache();
+}
+
+function getTrackEnd(track){
+  const buffer = getBufferForTrack(track);
+  if(!buffer) return 0;
+  return Math.max(0, trackOffsets[track] || 0) + buffer.duration;
+}
+
+function getProjectDuration(){
+  return Math.max(getTrackEnd("main"), getTrackEnd("take"), activeBuffer()?.duration || 0, 0);
+}
+
+function updateTrackUi(){
+  if(trackNameMain && trackNameMain.textContent.trim()) trackNames.main = trackNameMain.textContent.trim();
+  if(trackNameTake && trackNameTake.textContent.trim()) trackNames.take = trackNameTake.textContent.trim();
+
+  if(trackCardMain) trackCardMain.classList.toggle("active", activeBufferType === "main");
+  if(trackCardTake) trackCardTake.classList.toggle("active", activeBufferType === "take");
+  if(trackBadgeMain) trackBadgeMain.textContent = activeBufferType === "main" ? "選択中" : (mainBuffer ? "音源あり" : "空");
+  if(trackBadgeTake) trackBadgeTake.textContent = activeBufferType === "take" ? "選択中" : (takeBuffer ? "音源あり" : "空");
+  if(trackMetaMain) trackMetaMain.textContent = mainBuffer ? `${formatTime(mainBuffer.duration)} / Offset ${trackOffsets.main.toFixed(2)}s` : "未読み込み";
+  if(trackMetaTake) trackMetaTake.textContent = takeBuffer ? `${formatTime(takeBuffer.duration)} / Offset ${trackOffsets.take.toFixed(2)}s` : "未読み込み";
+  if(activeTrackEditorName) activeTrackEditorName.textContent = `${activeBufferType === "take" ? "🎙" : "🎵"} ${getTrackLabel(activeBufferType)}`;
+  if(activeTrackEditorSub) activeTrackEditorSub.textContent = `選択中トラックを編集 / MIX全体 ${formatTime(getProjectDuration())}`;
+  if(activeTrackOffsetLabel) activeTrackOffsetLabel.textContent = `Offset ${trackOffsets[activeBufferType].toFixed(2)}s`;
+  if(handMoveBtn){
+    handMoveBtn.classList.toggle("hand-active", handMoveMode);
+    handMoveBtn.textContent = handMoveMode ? "✋ ON" : "✋ 手のひら";
   }
-  document.addEventListener('DOMContentLoaded', applySingleModeLabels);
-  setInterval(applySingleModeLabels, 1000);
-})();
+  document.body.classList.toggle("hand-grab-mode", handMoveMode);
+}
+
+function selectTrack(track){
+  if(track !== "main" && track !== "take") return;
+  activeBufferType = track;
+  selectedStart = null;
+  selectedEnd = null;
+  playheadRatio = 0;
+  viewportStart = 0;
+  clearSplitMarkers();
+  clampViewport();
+  invalidateWaveformCache();
+  resetFx();
+  refreshPreview();
+  updateButtons();
+  updateTrackUi();
+}
+
+async function getProcessedTrackBuffer(track){
+  const prev = activeBufferType;
+  activeBufferType = track;
+  const buffer = activeBuffer();
+  if(!buffer){ activeBufferType = prev; return null; }
+  const out = isActiveFxBaked() ? cloneBuffer(buffer) : await processEffects(buffer);
+  activeBufferType = prev;
+  return out;
+}
+
+async function renderProjectBuffer(){
+  ensureAudioContext();
+  const main = await getProcessedTrackBuffer("main");
+  const take = await getProcessedTrackBuffer("take");
+  if(!main && !take) return null;
+  const sampleRate = (main || take).sampleRate;
+  const mainOffset = Math.max(0, Math.round((trackOffsets.main || 0) * sampleRate));
+  const takeOffset = Math.max(0, Math.round((trackOffsets.take || 0) * sampleRate));
+  const length = Math.max(
+    main ? mainOffset + main.length : 0,
+    take ? takeOffset + take.length : 0,
+    1
+  );
+  const channels = Math.max(main?.numberOfChannels || 0, take?.numberOfChannels || 0, 2);
+  const out = audioContext.createBuffer(channels, length, sampleRate);
+  const add = (src, offsetSamples)=>{
+    if(!src) return;
+    for(let ch=0; ch<channels; ch++){
+      const outData = out.getChannelData(ch);
+      const inData = src.getChannelData(Math.min(ch, src.numberOfChannels - 1));
+      for(let i=0; i<src.length && offsetSamples+i<length; i++){
+        outData[offsetSamples+i] += inData[i] * 0.85;
+      }
+    }
+  };
+  add(main, mainOffset);
+  add(take, takeOffset);
+  // 軽いノーマライズ。クリップだけ防ぐ。
+  let peak = 0;
+  for(let ch=0; ch<channels; ch++){
+    const d = out.getChannelData(ch);
+    for(let i=0;i<d.length;i++) peak = Math.max(peak, Math.abs(d[i]));
+  }
+  if(peak > 0.98){
+    const gain = 0.98 / peak;
+    for(let ch=0; ch<channels; ch++){
+      const d = out.getChannelData(ch);
+      for(let i=0;i<d.length;i++) d[i] *= gain;
+    }
+  }
+  return out;
+}
+
+function clearTrack(track){
+  if(track === "take"){
+    takeBuffer = null; takeFxBaked = false; takeFxBackup = null; trackOffsets.take = 0;
+    if(activeBufferType === "take") activeBufferType = "main";
+  }else{
+    mainBuffer = null; mainFxBaked = false; mainFxBackup = null; trackOffsets.main = 0;
+    if(activeBufferType === "main" && takeBuffer) activeBufferType = "take";
+  }
+  selectedStart = null;
+  selectedEnd = null;
+  playheadRatio = 0;
+  clearSplitMarkers();
+  invalidateWaveformCache();
+  refreshPreview();
+  updateButtons();
+  updateTrackUi();
+}
+
+if(trackCardMain) trackCardMain.addEventListener("click", e=>{ if(!e.target.isContentEditable && e.target.tagName !== "BUTTON") selectTrack("main"); });
+if(trackCardTake) trackCardTake.addEventListener("click", e=>{ if(!e.target.isContentEditable && e.target.tagName !== "BUTTON") selectTrack("take"); });
+if(selectMainBtn2) selectMainBtn2.onclick = ()=>selectTrack("main");
+if(selectTakeBtn2) selectTakeBtn2.onclick = ()=>selectTrack("take");
+if(clearMainBtn2) clearMainBtn2.onclick = ()=>clearTrack("main");
+if(clearTakeBtn2) clearTakeBtn2.onclick = ()=>clearTrack("take");
+if(trackNameMain) trackNameMain.addEventListener("input", updateTrackUi);
+if(trackNameTake) trackNameTake.addEventListener("input", updateTrackUi);
+if(handMoveBtn) handMoveBtn.onclick = ()=>{ handMoveMode = !handMoveMode; updateTrackUi(); };
+
+if(mixPreviewBtn){
+  mixPreviewBtn.onclick = async()=>{
+    const buffer = await renderProjectBuffer();
+    if(!buffer) return;
+    updateAudioElement(buffer);
+    audioEl.onloadedmetadata = ()=>{
+      audioEl.currentTime = Math.min(audioEl.duration || 0, (audioEl.duration || 0) * playheadRatio);
+      audioEl.play().catch(()=>{});
+    };
+    fileStatus.textContent = `2トラックMIXを再生中 / 長さ ${formatTime(buffer.duration)}`;
+  };
+}
+if(mixStopBtn) mixStopBtn.onclick = ()=>audioEl.pause();
+
+document.addEventListener("DOMContentLoaded", updateTrackUi);
+setInterval(updateTrackUi, 800);
+
 
 </script>
 </body>
