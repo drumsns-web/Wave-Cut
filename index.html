@@ -569,6 +569,7 @@ audio{width:100%;margin:8px 0}
 .teb-btn.stop{color:#cbd5e1;}
 .teb-btn.ab:not(:disabled){color:#35e0a1;border-color:rgba(53,224,161,.35) !important;}
 .teb-btn.cut:not(:disabled){color:#f87171;border-color:rgba(248,113,113,.35) !important;}
+.teb-btn.split:not(:disabled){color:#f0abfc;border-color:rgba(240,171,252,.35) !important;}
 .teb-btn.copy:not(:disabled){color:#60a5fa;border-color:rgba(96,165,250,.35) !important;}
 .teb-btn.paste:not(:disabled){color:#4ade80;border-color:rgba(74,222,128,.35) !important;}
 .teb-btn.undo:not(:disabled){color:#a78bfa;border-color:rgba(167,139,250,.35) !important;}
@@ -705,6 +706,7 @@ audio{width:100%;margin:8px 0}
         <button id="cutToClipboardBtn" class="teb-btn cut" disabled title="選択範囲を切り取り">⇥</button>
         <button id="copyToClipboardBtn" class="teb-btn copy" disabled title="選択範囲をコピー">⎘</button>
         <button id="pasteClipboardBtn" class="teb-btn paste" disabled title="現在位置に貼り付け">⎙</button>
+        <button id="splitBtn" class="teb-btn split" disabled title="現在位置で分割点を追加">✀</button>
         <button id="clearClipboardBtn" class="teb-btn stop" disabled title="クリップを消去">×</button>
         <span class="teb-sep"></span>
         <button id="undoEditBtn" class="teb-btn undo wide" disabled title="元に戻す">↩ 0</button>
@@ -822,6 +824,7 @@ let undoStack = [];
 const MAX_UNDO_STEPS = 15;
 let initialEditState = null;
 let initialEditLabel = "";
+let splitMarkers = [];
 
 const micSelect = document.getElementById("micSelect");
 const refreshMicBtn = document.getElementById("refreshMicBtn");
@@ -851,6 +854,7 @@ const trimBtn = document.getElementById("trimBtn");
 const cutToClipboardBtn = document.getElementById("cutToClipboardBtn");
 const copyToClipboardBtn = document.getElementById("copyToClipboardBtn");
 const pasteClipboardBtn = document.getElementById("pasteClipboardBtn");
+const splitBtn = document.getElementById("splitBtn");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const undoEditBtn = document.getElementById("undoEditBtn");
 const resetInitialBtn = document.getElementById("resetInitialBtn");
@@ -1128,6 +1132,7 @@ deleteMainBtn.onclick = ()=>{
   if(!mainBuffer) return;
   if(!confirm("メイン音源を削除しますか？")) return;
   mainBuffer = null;
+  clearSplitMarkers();
   mainFxBaked = false;
   mainFxBackup = null;
   if(activeBufferType === "main"){
@@ -2163,6 +2168,7 @@ fileInput.onchange = async(e)=>{
     resetFx();
     selectedStart = null;
     selectedEnd = null;
+    clearSplitMarkers();
     playheadRatio = 0;
     viewportStart = 0;
     clampViewport();
@@ -2194,6 +2200,7 @@ function updateButtons(){
   cutToClipboardBtn.disabled = !hasRange;
   copyToClipboardBtn.disabled = !hasRange;
   pasteClipboardBtn.disabled = !(hasActive && clipboardBuffer);
+  if(splitBtn) splitBtn.disabled = !(hasActive && playheadRatio > 0.001 && playheadRatio < 0.999);
   clearClipboardBtn.disabled = !clipboardBuffer;
   undoEditBtn.disabled = undoStack.length === 0;
   undoEditBtn.textContent = `元に戻す（${undoStack.length}/${MAX_UNDO_STEPS}）`;
@@ -2910,6 +2917,22 @@ function drawWaveform(buffer){
       ctx.lineTo(ex, h);
       ctx.stroke();
     }
+
+    if(Array.isArray(splitMarkers) && splitMarkers.length){
+      splitMarkers.forEach(marker=>{
+        if(marker>=visibleStart && marker<=visibleEnd){
+          const mx = ((marker-visibleStart)/(visibleEnd-visibleStart)) * w;
+          ctx.strokeStyle = "#f0abfc";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([7,5]);
+          ctx.beginPath();
+          ctx.moveTo(mx,0);
+          ctx.lineTo(mx,h);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      });
+    }
   }
 
   const visibleStart = viewportStart;
@@ -3022,6 +3045,7 @@ cutBtn.onclick=()=>{
   const start=Math.min(selectedStart,selectedEnd);
   const end=Math.max(selectedStart,selectedEnd);
   setActiveBuffer(cutAudioBuffer(activeBuffer(),start,end));
+  clearSplitMarkers();
   selectedStart=null; selectedEnd=null;
   refreshPreview(); updateButtons();
 };
@@ -3032,9 +3056,41 @@ trimBtn.onclick=()=>{
   const start=Math.min(selectedStart,selectedEnd);
   const end=Math.max(selectedStart,selectedEnd);
   setActiveBuffer(trimAudioBuffer(activeBuffer(),start,end));
+  clearSplitMarkers();
   selectedStart=null; selectedEnd=null;
   refreshPreview(); updateButtons();
 };
+
+
+function clearSplitMarkers(){
+  splitMarkers = [];
+}
+
+function normalizeSplitMarkers(){
+  splitMarkers = Array.from(new Set(splitMarkers.map(v=>Number(v).toFixed(5))))
+    .map(Number)
+    .filter(v=>v>0.001 && v<0.999)
+    .sort((a,b)=>a-b);
+}
+
+function addSplitMarkerAtCurrentPosition(){
+  const buffer = activeBuffer();
+  if(!buffer) return;
+  const marker = Math.max(0, Math.min(1, playheadRatio || 0));
+  if(marker <= 0.001 || marker >= 0.999){
+    alert("分割点は音源の先頭・末尾以外に置いてください。");
+    return;
+  }
+  saveUndoState("分割点追加");
+  splitMarkers.push(marker);
+  normalizeSplitMarkers();
+  selectedStart = null;
+  selectedEnd = null;
+  drawWaveform(buffer);
+  updateButtons();
+  fileStatus.classList.remove("extracting");
+  fileStatus.innerHTML = `✅ 分割点を追加しました。<br>現在位置：約${formatTimeMs(buffer.duration * marker)}。ピンクの点線で表示されます。`;
+}
 
 function updateClipboardStatus(){
   if(!clipboardStatus) return;
@@ -3064,6 +3120,7 @@ function createEditSnapshot(label="編集"){
     mainFxBackup: mainFxBackup ? cloneBuffer(mainFxBackup) : null,
     takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null,
     clipboardBuffer: clipboardBuffer ? cloneBuffer(clipboardBuffer) : null,
+    splitMarkers: Array.isArray(splitMarkers) ? [...splitMarkers] : [],
     clipboardSourceLabel
   };
 }
@@ -3094,6 +3151,7 @@ function restoreUndoState(){
   takeFxBackup = state.takeFxBackup ? cloneBuffer(state.takeFxBackup) : null;
   clipboardBuffer = state.clipboardBuffer ? cloneBuffer(state.clipboardBuffer) : null;
   clipboardSourceLabel = state.clipboardSourceLabel || "";
+  splitMarkers = Array.isArray(state.splitMarkers) ? [...state.splitMarkers] : [];
   clampViewport();
   invalidateWaveformCache();
   refreshPreview();
@@ -3111,7 +3169,8 @@ function saveInitialEditState(label="読み込み直後"){
     mainFxBaked,
     takeFxBaked,
     mainFxBackup: mainFxBackup ? cloneBuffer(mainFxBackup) : null,
-    takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null
+    takeFxBackup: takeFxBackup ? cloneBuffer(takeFxBackup) : null,
+    splitMarkers: Array.isArray(splitMarkers) ? [...splitMarkers] : []
   };
   initialEditLabel = label;
   undoStack = [];
@@ -3138,6 +3197,7 @@ function resetToInitialEditState(){
   takeFxBaked = !!initialEditState.takeFxBaked;
   mainFxBackup = initialEditState.mainFxBackup ? cloneBuffer(initialEditState.mainFxBackup) : null;
   takeFxBackup = initialEditState.takeFxBackup ? cloneBuffer(initialEditState.takeFxBackup) : null;
+  splitMarkers = Array.isArray(initialEditState.splitMarkers) ? [...initialEditState.splitMarkers] : [];
 
   selectedStart = null;
   selectedEnd = null;
@@ -3211,6 +3271,7 @@ cutToClipboardBtn.onclick=()=>{
   clipboardBuffer = copyAudioRange(buffer,start,end);
   clipboardSourceLabel = activeBufferType === "take" ? "追加音源から切り取り" : "メイン音源から切り取り";
   setActiveBuffer(cutAudioBuffer(buffer,start,end));
+  clearSplitMarkers();
   clearFxBackupForActiveEdit();
   selectedStart=null; selectedEnd=null;
   playheadRatio = Math.min(1, Math.max(0, start));
@@ -3238,6 +3299,7 @@ pasteClipboardBtn.onclick=async()=>{
   try{
     const inserted = await insertBufferAtRatio(buffer, clipboardBuffer, pasteRatio);
     setActiveBuffer(inserted);
+    clearSplitMarkers();
     clearFxBackupForActiveEdit();
     selectedStart=null; selectedEnd=null;
     playheadRatio = Math.min(1, Math.max(0, (buffer.length * pasteRatio + clipboardBuffer.length) / inserted.length));
@@ -3248,6 +3310,12 @@ pasteClipboardBtn.onclick=async()=>{
     console.error(err);
   }
 };
+
+if(splitBtn){
+  splitBtn.onclick=()=>{
+    addSplitMarkerAtCurrentPosition();
+  };
+}
 
 clearClipboardBtn.onclick=()=>{
   clipboardBuffer = null;
