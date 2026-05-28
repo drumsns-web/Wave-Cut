@@ -859,6 +859,7 @@ audio{width:100%;margin:8px 0}
 .teb-btn.teb-cut:not(:disabled){color:#f87171;border-color:rgba(248,113,113,.3) !important;}
 .teb-btn.teb-copy:not(:disabled){color:#60a5fa;border-color:rgba(96,165,250,.3) !important;}
 .teb-btn.teb-paste:not(:disabled){color:#4ade80;border-color:rgba(74,222,128,.3) !important;}
+.teb-btn.teb-split:not(:disabled){color:#fbbf24;border-color:rgba(251,191,36,.35) !important;}
 .teb-btn.teb-shift-l,.teb-btn.teb-shift-r{color:#fbbf24;}
 .teb-btn.teb-fx{color:#a78bfa;font-size:9px;font-weight:900;width:24px;}
 .teb-btn.teb-fx.active{background:rgba(167,139,250,.2) !important;color:#c4b5fd;border-color:rgba(167,139,250,.4) !important;}
@@ -1218,7 +1219,8 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutMain"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ貼り付け" disabled>⎙</button>
+          <button class="teb-btn teb-split" id="tebSplitMain" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartMain" data-track="main" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -1303,7 +1305,8 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutTake"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ貼り付け" disabled>⎙</button>
+          <button class="teb-btn teb-split" id="tebSplitTake" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartTake" data-track="take" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -1407,7 +1410,8 @@ body.clip-edit-mode::before{
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutChorus"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ貼り付け" disabled>⎙</button>
+          <button class="teb-btn teb-split" id="tebSplitChorus" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartChorus" data-track="chorus" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -2059,7 +2063,7 @@ function resizeCanvas(){
   canvas.height = canvas.clientHeight * devicePixelRatio;
   timeRulerCanvas.width = timeRulerCanvas.clientWidth * devicePixelRatio;
   timeRulerCanvas.height = timeRulerCanvas.clientHeight * devicePixelRatio;
-  trackCanvasList.forEach(c=>{
+  document.querySelectorAll('.track-wave-canvas').forEach(c=>{
     c.width = c.clientWidth * devicePixelRatio;
     c.height = c.clientHeight * devicePixelRatio;
   });
@@ -4508,6 +4512,12 @@ function getTrackTimelineDuration(){
   if(mainBuffer) durations.push(mainBuffer.duration);
   if(takeBuffer) durations.push(Math.max(0, takeOffsetMs / 1000) + takeBuffer.duration);
   if(chorusBuffer) durations.push(Math.max(0, chorusOffsetMs / 1000) + chorusBuffer.duration);
+  if(typeof extraTracks !== "undefined"){
+    extraTracks.forEach(t=>{
+      const b = buildTrackBufferFromClips(t.id);
+      if(b) durations.push(Math.max(0, (t.offsetMs || 0) / 1000) + b.duration);
+    });
+  }
   return Math.max(1, ...durations);
 }
 
@@ -4529,6 +4539,20 @@ function makeClip(buffer, startSec, label){
     startSec: Math.max(0, Number(startSec) || 0),
     label: label || ""
   };
+}
+
+function cloneClipList(clips){
+  return (clips || []).map(cl=>({
+    id: cl.id,
+    buffer: cloneBuffer(cl.buffer),
+    startSec: cl.startSec,
+    label: cl.label || ""
+  }));
+}
+
+function restoreClipList(track, clips){
+  trackClips[track] = cloneClipList(clips || []);
+  rebuildTrackBuffer(track);
 }
 
 // クリップ配列をstartSec順にソート＋重なり解消（後ろにずらす）
@@ -4709,6 +4733,65 @@ function cutTimeRangeFromClips(track, startSec, endSec){
 }
 
 
+// 指定秒位置でクリップを分割する（音は削除しない）
+function splitTrackAtSec(track, splitSec){
+  const clips = trackClips[track];
+  if(!clips || !clips.length || !audioContext) return false;
+  const newClips = [];
+  let didSplit = false;
+  for(const cl of clips){
+    const clStart = cl.startSec;
+    const clEnd = cl.startSec + cl.buffer.duration;
+    if(splitSec <= clStart + 0.001 || splitSec >= clEnd - 0.001){
+      newClips.push(cl);
+      continue;
+    }
+    const sr = cl.buffer.sampleRate;
+    const numCh = cl.buffer.numberOfChannels;
+    const cutInClip = splitSec - clStart;
+    const leftLen = Math.floor(cutInClip * sr);
+    const rightLen = cl.buffer.length - leftLen;
+    if(leftLen <= 0 || rightLen <= 0){
+      newClips.push(cl);
+      continue;
+    }
+    const leftBuf = audioContext.createBuffer(numCh, leftLen, sr);
+    const rightBuf = audioContext.createBuffer(numCh, rightLen, sr);
+    for(let ch=0; ch<numCh; ch++){
+      const src = cl.buffer.getChannelData(ch);
+      leftBuf.getChannelData(ch).set(src.subarray(0, leftLen));
+      rightBuf.getChannelData(ch).set(src.subarray(leftLen));
+    }
+    newClips.push(makeClip(leftBuf, clStart, (cl.label || "clip") + "_a"));
+    newClips.push(makeClip(rightBuf, splitSec, (cl.label || "clip") + "_b"));
+    didSplit = true;
+  }
+  if(!didSplit) return false;
+  trackClips[track] = newClips;
+  normalizeTrackClips(track);
+  rebuildTrackBuffer(track);
+  return true;
+}
+
+function splitTrackAtRangeEdges(track, startSec, endSec){
+  let changed = false;
+  // 後ろから先に分割すると、前側の分割判定が安定する
+  if(endSec > startSec) changed = splitTrackAtSec(track, endSec) || changed;
+  changed = splitTrackAtSec(track, startSec) || changed;
+  return changed;
+}
+
+// 貼り付けは統合バッファ化せず、別クリップとして追加する
+function pasteBufferAsSeparateClip(track, clipBuffer, atSec){
+  if(!clipBuffer || !audioContext) return false;
+  if(!trackClips[track]) trackClips[track] = [];
+  trackClips[track].push(makeClip(cloneBuffer(clipBuffer), Math.max(0, atSec || 0), "pasted"));
+  normalizeTrackClips(track);
+  rebuildTrackBuffer(track);
+  return true;
+}
+
+
 // ════════════════════════════════════════════════════════════════
 // ── 拡張トラック（追加・削除可能、最大10トラックまで） ──────────
 // ════════════════════════════════════════════════════════════════
@@ -4781,7 +4864,8 @@ function createExtraTrackHTML(id, emoji, name){
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCut${c1}"   title="選択をカット" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
-          <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ貼り付け" disabled>⎙</button>
+          <button class="teb-btn teb-split" id="tebSplit${c1}" title="現在位置または選択範囲の両端で分割" disabled>◇</button>
+          <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ別クリップとして貼り付け" disabled>⎙</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestart${c1}" data-track="${id}" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -4818,6 +4902,8 @@ function addExtraTrack(opts){
     tmp.innerHTML = createExtraTrackHTML(id, emoji, name).trim();
     const lane = tmp.firstChild;
     stack.appendChild(lane);
+    // 動的トラックも1〜3と同じ波形幅で描画できるよう、追加直後にcanvasサイズを再計測
+    if(typeof resizeCanvas === "function") resizeCanvas();
     // 各種イベント設定
     wireUpExtraTrack(id);
   }
@@ -5060,9 +5146,15 @@ function updateTrackLaneInfo(){
 
 function drawStackedTimelines(){
   updateTrackLaneInfo();
+  resizeCanvas();
   drawMiniTrackWave(trackCanvasMain, "main", "#35e0a1");
   drawMiniTrackWave(trackCanvasTake, "take", "#4f8cff");
   drawMiniTrackWave(trackCanvasChorus, "chorus", "#f59e0b");
+  if(typeof extraTracks !== "undefined"){
+    extraTracks.forEach(t=>{
+      drawMiniTrackWave(getTrackCanvas(t.id), t.id, trackColor(t.id));
+    });
+  }
 }
 
 function drawWaveform(buffer){
@@ -5625,7 +5717,7 @@ function trackPushUndo(track, label){
   const st = getTrackState(track);
   const buf = bufferForTrack(track);
   if(!buf) return;
-  st.undoStack.push({ label, buffer: cloneBuffer(buf), offsetMs: getTrackOffsetMs(track) });
+  st.undoStack.push({ label, buffer: cloneBuffer(buf), clips: cloneClipList(trackClips[track] || []), offsetMs: getTrackOffsetMs(track) });
   if(st.undoStack.length > TRACK_MAX_UNDO) st.undoStack.shift();
   updateTrackEditBar(track);
 }
@@ -5634,9 +5726,14 @@ function trackUndo(track){
   const st = getTrackState(track);
   if(!st.undoStack.length) return;
   const snap = st.undoStack.pop();
-  if(track === "take")   { takeBuffer = snap.buffer;   takeOffsetMs   = snap.offsetMs; }
+  if(snap.clips){
+    restoreClipList(track, snap.clips);
+  } else if(track === "take")   { takeBuffer = snap.buffer;   takeOffsetMs   = snap.offsetMs; }
   else if(track === "chorus"){ chorusBuffer = snap.buffer; chorusOffsetMs = snap.offsetMs; }
   else                   { mainBuffer  = snap.buffer; }
+  if(track === "take") takeOffsetMs = snap.offsetMs;
+  else if(track === "chorus") chorusOffsetMs = snap.offsetMs;
+  else if(isExtraTrack(track)){ const t = getExtraTrack(track); if(t) t.offsetMs = snap.offsetMs; }
   st.selStart = null; st.selEnd = null; st.playheadRatio = 0;
   invalidateWaveformCache();
   drawStackedTimelines();
@@ -5948,12 +6045,14 @@ function updateTrackEditBar(track){
     cut:   `tebCut${cap(track)}`,
     copy:  `tebCopy${cap(track)}`,
     paste: `tebPaste${cap(track)}`,
+    split: `tebSplit${cap(track)}`,
     undo:  `tebUndo${cap(track)}`,
   };
   const el = id => document.getElementById(id);
   if(el(ids.cut))   el(ids.cut).disabled   = !hasSel;
   if(el(ids.copy))  el(ids.copy).disabled  = !hasSel;
   if(el(ids.paste)) el(ids.paste).disabled = !(buf && hasClip);
+  if(el(ids.split)) el(ids.split).disabled = !buf;
   if(el(ids.undo))  el(ids.undo).disabled  = !st.undoStack.length;
 
   // 時刻表示
@@ -5965,7 +6064,7 @@ function updateTrackEditBar(track){
     tl.textContent = "--:--.-";
   }
 }
-function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g,""); }
 
 // ── edit-bar ボタンのイベント設定 ───────────────────────────────
 function setupTrackEditBar(track){
@@ -6052,7 +6151,33 @@ function setupTrackEditBar(track){
     fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
   };
 
-  // ⎙ 貼り付け
+  // ◇ 分割（現在位置、または選択範囲の両端で分割。音は削除しない）
+  const splitBtn_ = document.getElementById(`tebSplit${c}`);
+  if(splitBtn_) splitBtn_.onclick = ()=>{
+    const buf = bufferForTrack(track);
+    const st  = getTrackState(track);
+    if(!buf) return;
+    trackPushUndo(track, "分割");
+    let changed = false;
+    if(st.selStart !== null && st.selEnd !== null && Math.abs(st.selEnd - st.selStart) > 0.005){
+      const s = Math.min(st.selStart, st.selEnd) * buf.duration;
+      const e = Math.max(st.selStart, st.selEnd) * buf.duration;
+      changed = splitTrackAtRangeEdges(track, s, e);
+      st.selStart = null; st.selEnd = null;
+    } else {
+      changed = splitTrackAtSec(track, (st.playheadRatio || 0) * buf.duration);
+    }
+    if(!changed){
+      const undo = st.undoStack.pop();
+      fileStatus.textContent = "分割できる位置ではありません。クリップの内側を選んでください。";
+      updateTrackEditBar(track);
+      return;
+    }
+    invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+    fileStatus.textContent = `◇ 分割しました（クリップ数: ${(trackClips[track] || []).length}）`;
+  };
+
+  // ⎙ 貼り付け（既存音源と結合せず、別クリップとして追加）
   const pasteBtn_ = document.getElementById(`tebPaste${c}`);
   if(pasteBtn_) pasteBtn_.onclick = async ()=>{
     const buf  = bufferForTrack(track);
@@ -6061,12 +6186,13 @@ function setupTrackEditBar(track){
     if(!buf || !clip) return;
     trackPushUndo(track, "貼り付け");
     try{
-      const inserted = await insertBufferAtRatio(buf, clip, st.playheadRatio || 0);
-      setTrackBuffer(track, inserted);
+      const pasteSec = Math.max(0, (st.playheadRatio || 0) * buf.duration);
+      pasteBufferAsSeparateClip(track, clip, pasteSec);
+      const newBuf = bufferForTrack(track);
       st.selStart = null; st.selEnd = null;
-      st.playheadRatio = Math.min(1, (buf.length * st.playheadRatio + clip.length) / inserted.length);
+      st.playheadRatio = newBuf ? Math.min(1, pasteSec / newBuf.duration) : 0;
       invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-      fileStatus.textContent = "⎙ 貼り付けました";
+      fileStatus.textContent = `⎙ 別クリップとして貼り付けました（クリップ数: ${(trackClips[track] || []).length}）`;
     }catch(err){ alert("貼り付けに失敗: " + err.message); }
   };
 
@@ -6728,7 +6854,7 @@ document.addEventListener("keydown", (e) => {
   const NAMES = { main:"メイン", take:"トラック2", chorus:"トラック3" };
   let currentTrack = null;
 
-  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+  function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1).replace(/_/g,""); }
 
   function open(track){
     currentTrack = track;
