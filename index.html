@@ -1173,6 +1173,65 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
     .bottom-transport, .sticky-transport{position:sticky;bottom:0;z-index:50;}
   }
 </style>
+
+<style id="mic-gain-touch-fix-v2">
+/* マイクゲイン操作エリアの重なり防止：dB表示・スライダー・0dBボタンを分離 */
+.mic-gain-row{
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr) 64px !important;
+  grid-template-areas:
+    "label reset"
+    "slider slider" !important;
+  align-items:center !important;
+  gap:8px 10px !important;
+  margin-top:12px !important;
+  padding:10px !important;
+  background:rgba(255,255,255,.035) !important;
+  border:1px solid rgba(255,255,255,.08) !important;
+  border-radius:14px !important;
+}
+.mic-gain-row label{
+  grid-area:label !important;
+  margin:0 !important;
+  white-space:normal !important;
+  line-height:1.35 !important;
+  pointer-events:none !important;
+}
+.mic-gain-row input[type="range"]{
+  grid-area:slider !important;
+  width:100% !important;
+  min-width:0 !important;
+  height:34px !important;
+  display:block !important;
+  margin:0 !important;
+  padding:0 !important;
+  position:relative !important;
+  z-index:2 !important;
+  touch-action:pan-x !important;
+}
+.mic-gain-reset{
+  grid-area:reset !important;
+  width:64px !important;
+  height:32px !important;
+  padding:0 !important;
+  margin:0 !important;
+  position:relative !important;
+  z-index:3 !important;
+}
+.mic-gain-row input[type="range"]::-webkit-slider-thumb{
+  position:relative;
+  z-index:4;
+}
+@media(max-width:560px){
+  .mic-gain-row{
+    grid-template-columns:1fr 58px !important;
+    gap:7px 8px !important;
+    padding:9px !important;
+  }
+  .mic-gain-reset{width:58px !important;}
+  .mic-gain-row input[type="range"]{height:38px !important;}
+}
+</style>
 </head>
 <body>
 
@@ -8096,6 +8155,208 @@ if(document.readyState === "loading"){
       }
     });
   }
+})();
+</script>
+
+
+<!-- WaveCut video import fallback patch 2026-05-29 v3 -->
+<script id="wavecut-video-import-fallback-v3">
+(function(){
+  'use strict';
+
+  function wcFileExt(name){
+    if(!name || !name.includes('.')) return 'dat';
+    return name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g,'') || 'dat';
+  }
+
+  function wcIsVideoLike(file){
+    const type = (file && file.type || '').toLowerCase();
+    const name = (file && file.name || '').toLowerCase();
+    return type.startsWith('video/') || type.includes('quicktime') || /\.(mov|mp4|m4v|avi|mkv|webm)$/i.test(name);
+  }
+
+  function wcIsAudioLike(file){
+    const type = (file && file.type || '').toLowerCase();
+    const name = (file && file.name || '').toLowerCase();
+    return type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg|opus)$/i.test(name);
+  }
+
+  async function wcDecodeViaFfmpegWav(file){
+    ensureAudioContext();
+    if(audioContext && audioContext.state === 'suspended'){
+      try{ await audioContext.resume(); }catch(e){}
+    }
+
+    const ffmpeg = await loadFfmpeg();
+    const util = window.FFmpegUtil;
+    if(!util || !util.fetchFile) throw new Error('ffmpeg utility is not available');
+
+    const inputName = 'wavecut_input.' + wcFileExt(file.name || 'input.mov');
+    const outputName = 'wavecut_audio_extract.wav';
+
+    if(fileStatus){
+      fileStatus.classList.add('extracting');
+      fileStatus.innerHTML =
+        '動画から音声だけを抽出中...<br>' +
+        'MOV/MP4の直接読み込みに失敗したため、WAV抽出方式に切り替えています。<br>' +
+        '<span class="ffmpeg-note">長い動画や4K動画は端末メモリ不足で失敗する場合があります。</span>';
+    }
+
+    try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+    try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+
+    try{
+      await ffmpeg.writeFile(inputName, await util.fetchFile(file));
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-vn',
+        '-map', '0:a:0?',
+        '-ac', '2',
+        '-ar', '44100',
+        '-f', 'wav',
+        outputName
+      ]);
+
+      const wavData = await ffmpeg.readFile(outputName);
+      const wavBuffer = wavData.buffer.slice(wavData.byteOffset, wavData.byteOffset + wavData.byteLength);
+      const wavBlob = new Blob([wavBuffer], {type:'audio/wav'});
+      const decoded = await decodeBlobDirectly(wavBlob);
+      decoded._wavecutLoadMethod = 'ffmpeg-wav-audio-extract-v3';
+      return decoded;
+    }finally{
+      try{ await ffmpeg.deleteFile(inputName); }catch(e){}
+      try{ await ffmpeg.deleteFile(outputName); }catch(e){}
+    }
+  }
+
+  function wcMediaProbe(file){
+    return new Promise((resolve)=>{
+      const url = URL.createObjectURL(file);
+      const el = document.createElement(wcIsAudioLike(file) && !wcIsVideoLike(file) ? 'audio' : 'video');
+      let done = false;
+      const finish = (info)=>{
+        if(done) return;
+        done = true;
+        try{ URL.revokeObjectURL(url); }catch(e){}
+        try{ el.remove(); }catch(e){}
+        resolve(info || null);
+      };
+      el.preload = 'metadata';
+      el.playsInline = true;
+      el.muted = true;
+      el.style.display = 'none';
+      el.onloadedmetadata = ()=> finish({duration: (isFinite(el.duration) ? el.duration : 0)});
+      el.onerror = ()=> finish(null);
+      setTimeout(()=>finish(null), 8000);
+      document.body.appendChild(el);
+      el.src = url;
+      try{ el.load(); }catch(e){}
+    });
+  }
+
+  const previousDecodeFileToAudioBufferV3 = decodeFileToAudioBuffer;
+  decodeFileToAudioBuffer = async function(file){
+    ensureAudioContext();
+    if(audioContext && audioContext.state === 'suspended'){
+      try{ await audioContext.resume(); }catch(e){}
+    }
+
+    const mediaInfo = await wcMediaProbe(file);
+    const isVideo = wcIsVideoLike(file);
+    const isAudio = wcIsAudioLike(file) && !isVideo;
+
+    if(fileStatus){
+      fileStatus.classList.add('extracting');
+      fileStatus.innerHTML =
+        '読み込み中...<br>' +
+        (file && file.name ? file.name : 'selected file') + '<br>' +
+        '<span class="ffmpeg-note">MOV/MP4は複数方式で順番に試します。</span>';
+    }
+
+    if(isAudio){
+      try{
+        const direct = await decodeBlobDirectly(file);
+        direct._wavecutLoadMethod = 'direct-audio-v3';
+        return direct;
+      }catch(e){
+        console.warn('direct audio decode failed', e);
+      }
+    }
+
+    if(isVideo){
+      try{
+        const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+        captured._wavecutLoadMethod = 'user-tap-media-capture-v3';
+        return captured;
+      }catch(e1){
+        console.warn('user tap media capture failed', e1);
+        if(fileStatus){
+          fileStatus.innerHTML =
+            '通常の動画取り込みに失敗しました。<br>' +
+            'WAV抽出方式に切り替えます...<br>' +
+            '<span class="ffmpeg-note">初回はエンジン読込に時間がかかります。</span>';
+        }
+      }
+
+      try{
+        const ff = await wcDecodeViaFfmpegWav(file);
+        ff._wavecutMediaDuration = mediaInfo && mediaInfo.duration ? mediaInfo.duration : ff.duration;
+        return ff;
+      }catch(e2){
+        console.warn('ffmpeg wav extraction failed', e2);
+      }
+
+      try{
+        const playable = await extractAudioViaPlayableMedia(file, mediaInfo);
+        playable._wavecutLoadMethod = 'playable-media-capture-v3';
+        return playable;
+      }catch(e3){
+        console.warn('playable media fallback failed', e3);
+      }
+    }
+
+    try{
+      return await previousDecodeFileToAudioBufferV3(file);
+    }catch(e4){
+      if(isVideo){
+        throw new Error('MOV/MP4から音声を抽出できませんでした。端末で再生できる動画か、動画が長すぎないか、HTTPS上で開いているかを確認してください。詳細: ' + e4.message);
+      }
+      throw e4;
+    }
+  };
+
+  const previousLoadFileToTrackV3 = loadFileToTrack;
+  loadFileToTrack = async function(file, track){
+    if(!file) return;
+    try{
+      if(fileStatus && wcIsVideoLike(file)){
+        fileStatus.classList.add('extracting');
+        fileStatus.innerHTML =
+          '動画ファイルを読み込みます。<br>' +
+          'まず「再生しながら抽出」、失敗した場合は「WAV抽出方式」に自動で切り替えます。<br>' +
+          '<span class="ffmpeg-note">抽出中は画面ロック・別アプリ移動をしないでください。</span>';
+      }
+      await previousLoadFileToTrackV3(file, track);
+    }catch(e){
+      console.error(e);
+      if(fileStatus){
+        fileStatus.classList.remove('extracting');
+        fileStatus.textContent = '読み込み失敗：' + e.message;
+      }
+      alert('動画ファイルを読み込めませんでした。詳細: ' + e.message);
+    }
+  };
+
+  [['fileInputMain','main'],['fileInputTake','take'],['fileInputChorus','chorus']].forEach(([id, track])=>{
+    const input = document.getElementById(id);
+    if(input){
+      input.onchange = e => {
+        const f = e.target.files && e.target.files[0];
+        loadFileToTrack(f, track);
+        input.value = '';
+      };
+    }
+  });
 })();
 </script>
 
