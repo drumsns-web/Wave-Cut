@@ -899,7 +899,7 @@ body.hand-grab-mode .timeline-wave-canvas.dragging{cursor:grabbing !important;}
     <option value="standard">標準読み込みのみ</option>
     <option value="capture">MOV抽出モード</option>
   </select>
-  <div class="info" id="loadMethodInfo">通常は「自動」推奨です。標準読み込みに失敗したMOVだけ、再生しながら音声抽出へ進みます。</div>
+  <div class="info" id="loadMethodInfo">通常は「自動」推奨です。まず標準読み込みを試し、失敗したMOV/動画だけ抽出モードに切り替えます。</div>
 
   <label>ファイル読み込み（音声・動画対応）</label>
   <div class="info">最大2トラックに読み込めます。トラック名はWave Edit内で直接編集できます。</div>
@@ -1806,7 +1806,7 @@ function isProbablyMovFile(file){
   return type.includes("quicktime") || name.endsWith(".mov");
 }
 
-async function decodeFileToAudioBuffer(file, method = "auto"){
+async function decodeFileToAudioBuffer(file, method="auto"){
   ensureAudioContext();
 
   let mediaInfo = null;
@@ -1817,59 +1817,46 @@ async function decodeFileToAudioBuffer(file, method = "auto"){
   }
 
   const isMov = isProbablyMovFile(file);
-  const isVideo = (file.type || "").toLowerCase().startsWith("video/") || /\.(mov|mp4|m4v|webm|avi|mkv)$/i.test(file.name || "");
+  const isVideo = (file.type || "").toLowerCase().startsWith("video/") || isMov;
 
-  const directDecode = async()=>{
+  const tryDirectDecode = async()=>{
     const decoded = await decodeBlobDirectly(file);
-    decoded._wavecutLoadMethod = "direct";
+    decoded._wavecutLoadMethod = "standard-direct";
     decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
     return decoded;
   };
 
-  const userTapCapture = async(label)=>{
-    const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
-    captured._wavecutLoadMethod = label || (isMov ? "mov-user-tap-media-capture-original" : "video-user-tap-media-capture-original");
-    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-    return captured;
-  };
-
-  const playableCapture = async()=>{
-    const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
-    captured._wavecutLoadMethod = "media-capture-original";
-    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-    return captured;
-  };
-
-  // 手動指定：MOV抽出モード。iPhone MOVなど、標準読み込みに失敗しやすい時用。
-  if(method === "capture"){
-    return await userTapCapture(isMov ? "mov-user-selected-capture" : "video-user-selected-capture");
-  }
-
-  // 手動指定：標準読み込みのみ。失敗したらそのままエラーにする。
-  if(method === "standard"){
-    const decoded = await directDecode();
-    decoded._wavecutLoadMethod = "direct-standard-only";
-    return decoded;
-  }
-
-  // 推奨：自動。まず標準読み込みを試し、失敗時だけMOV/動画抽出へ進む。
-  try{
-    const decoded = await directDecode();
-    decoded._wavecutLoadMethod = "direct-auto-first";
-    return decoded;
-  }catch(primaryError){
-    console.warn("Auto direct decode failed. Trying capture fallback if needed.", primaryError);
-  }
-
-  if(isMov || isVideo){
-    try{
-      return await userTapCapture(isMov ? "mov-auto-fallback-capture" : "video-auto-fallback-capture");
-    }catch(userTapError){
-      console.warn("Auto user-tap media capture failed. Trying playable fallback.", userTapError);
+  const tryCaptureDecode = async()=>{
+    let captured;
+    if(isVideo){
+      captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+      captured._wavecutLoadMethod = isMov ? "mov-capture" : "video-capture";
+    }else{
+      captured = await extractAudioViaPlayableMedia(file, mediaInfo);
+      captured._wavecutLoadMethod = "media-capture";
     }
+    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+    return captured;
+  };
+
+  if(method === "standard"){
+    return await tryDirectDecode();
   }
 
-  return await playableCapture();
+  if(method === "capture"){
+    return await tryCaptureDecode();
+  }
+
+  // auto: まず速くて音切れしにくい標準読み込みを試し、失敗した動画/MOVだけ抽出モードへ進める
+  try{
+    return await tryDirectDecode();
+  }catch(primaryError){
+    console.warn("Standard direct decode failed. Fallback decision follows.", primaryError);
+    if(isVideo){
+      return await tryCaptureDecode();
+    }
+    throw primaryError;
+  }
 }
 
 function shouldTryRemux(file){
@@ -2703,7 +2690,7 @@ fileInput.onchange = async(e)=>{
     fileStatus.classList.add("extracting");
     const method = loadMethod ? loadMethod.value : "auto";
     const methodLabel = method === "auto" ? "自動" : method === "standard" ? "標準読み込みのみ" : "MOV抽出モード";
-    fileStatus.innerHTML = `読み込み中...<br>読み込み方法：${methodLabel}<br>自動の場合は、まず標準読み込みを試し、失敗時だけMOV抽出に進みます。`;
+    fileStatus.innerHTML = `読み込み中...<br>読み込み方法：${methodLabel}<br>自動の場合は、標準読み込みを先に試し、失敗したMOV/動画だけ抽出モードに進みます。`;
 
     const decoded = await decodeFileToAudioBuffer(file, method);
 
@@ -2725,6 +2712,10 @@ fileInput.onchange = async(e)=>{
 
     saveInitialEditState(targetText);
     setFileStatus(file, targetText, decoded);
+    if(decoded._wavecutLoadMethod){
+      const label = decoded._wavecutLoadMethod === "standard-direct" ? "標準読み込み" : decoded._wavecutLoadMethod.includes("capture") ? "MOV/動画抽出モード" : decoded._wavecutLoadMethod;
+      fileStatus.innerHTML += `<br>読み込み方式：${label}`;
+    }
     resetFx();
     selectedStart = null;
     selectedEnd = null;
@@ -2807,19 +2798,7 @@ function setFileStatus(file, targetText, decoded){
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
   let methodText = "読み込み方式：直接デコード";
-  if(decoded._wavecutLoadMethod === "direct-auto-first"){
-    methodText = "読み込み方式：自動 / 標準読み込み成功";
-  }else if(decoded._wavecutLoadMethod === "direct-standard-only"){
-    methodText = "読み込み方式：標準読み込みのみ";
-  }else if(decoded._wavecutLoadMethod === "mov-auto-fallback-capture"){
-    methodText = "読み込み方式：自動 / MOV抽出モードへ切替";
-  }else if(decoded._wavecutLoadMethod === "video-auto-fallback-capture"){
-    methodText = "読み込み方式：自動 / 動画抽出モードへ切替";
-  }else if(decoded._wavecutLoadMethod === "mov-user-selected-capture"){
-    methodText = "読み込み方式：MOV抽出モード";
-  }else if(decoded._wavecutLoadMethod === "video-user-selected-capture"){
-    methodText = "読み込み方式：動画抽出モード";
-  }else if(decoded._wavecutLoadMethod === "mov-user-tap-media-capture-original"){
+  if(decoded._wavecutLoadMethod === "mov-user-tap-media-capture-original"){
     methodText = "読み込み方式：動画から音声を取り込み";
   }else if(decoded._wavecutLoadMethod === "video-user-tap-media-capture-original"){
     methodText = "読み込み方式：動画から音声を取り込み";
