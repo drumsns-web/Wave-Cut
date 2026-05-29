@@ -734,6 +734,80 @@ audio{width:100%;margin:8px 0}
 .hand-help{font-size:11px;color:#fbbf24;line-height:1.45;}
 body.hand-grab-mode #waveCanvas{cursor:grab !important;}
 body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
+
+/* ─── Video-like 2 Track Timeline Override ─── */
+.shared-playhead-readout{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin:8px 0 10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-weight:900;font-size:17px;color:#f8fafc;
+}
+.shared-playhead-readout span{
+  background:rgba(53,224,161,.14);border:1px solid rgba(53,224,161,.35);
+  color:#35e0a1;border-radius:999px;padding:5px 12px;
+}
+.video-timeline{
+  border:1px solid rgba(255,255,255,.09);
+  border-radius:16px;overflow:hidden;background:rgba(2,6,23,.72);
+  margin:10px 0 8px;
+}
+.timeline-ruler{
+  display:grid;grid-template-columns:104px 1fr;
+  min-height:34px;border-bottom:1px solid rgba(255,255,255,.09);
+  background:rgba(15,23,42,.98);
+}
+.timeline-side-title{
+  display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:900;color:#64748b;
+  border-right:1px solid rgba(255,255,255,.08);
+  letter-spacing:.08em;
+}
+.timeline-ruler-canvas-wrap{min-width:0;position:relative;}
+.timeline-ruler canvas{width:100%;height:34px;margin:0;border:none;border-radius:0;background:transparent;display:block;}
+.timeline-lane{
+  display:grid;grid-template-columns:104px 1fr;
+  min-height:104px;border-bottom:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.018);
+}
+.timeline-lane:last-child{border-bottom:none;}
+.timeline-lane.active .timeline-side{
+  background:linear-gradient(180deg,rgba(53,224,161,.11),rgba(255,255,255,.025));
+  box-shadow:inset 3px 0 0 #35e0a1;
+}
+.timeline-side{
+  padding:7px 6px;display:flex;flex-direction:column;gap:4px;
+  border-right:1px solid rgba(255,255,255,.08);
+  min-width:0;background:rgba(255,255,255,.018);
+}
+.timeline-side .two-track-name{font-size:12px;line-height:1.2;white-space:normal;overflow:hidden;display:block;}
+.timeline-side .two-track-badge{align-self:flex-start;font-size:9px;}
+.timeline-side .two-track-meta{min-height:auto;font-size:9.5px;line-height:1.35;}
+.timeline-side-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:auto;}
+.timeline-side-actions button{padding:5px 2px !important;margin:0 !important;min-height:0 !important;font-size:9px !important;border-radius:7px !important;}
+.timeline-wave-wrap{
+  position:relative;min-width:0;background:#020617;overflow:hidden;
+  cursor:crosshair;touch-action:none;
+}
+.timeline-wave-canvas{
+  width:100%;height:104px !important;margin:0 !important;border:none !important;border-radius:0 !important;
+  background:#020617;display:block;touch-action:none;
+}
+.timeline-empty{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:rgba(148,163,184,.62);font-size:12px;text-align:center;pointer-events:none;
+}
+.timeline-lane.has-audio .timeline-empty{display:none;}
+.timeline-edit-bar{margin-top:8px;}
+body.hand-grab-mode .timeline-wave-wrap{cursor:grab !important;}
+body.hand-grab-mode .timeline-wave-canvas.dragging{cursor:grabbing !important;}
+@media(max-width:560px){
+  .timeline-ruler,.timeline-lane{grid-template-columns:84px 1fr;}
+  .timeline-wave-canvas{height:86px !important;}
+  .timeline-lane{min-height:86px;}
+  .timeline-side .two-track-name{font-size:10.5px;}
+  .timeline-side .two-track-meta{font-size:8.5px;}
+  .timeline-side-actions button{font-size:8.5px !important;}
+}
+
 @media(max-width:560px){.two-track-panel{grid-template-columns:1fr;}}
 
 @media(max-width:560px){
@@ -819,6 +893,14 @@ body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
     <option value="take-append">トラック2の末尾に結合</option>
   </select>
 
+  <label>読み込み方法</label>
+  <select id="loadMethod">
+    <option value="auto" selected>自動：標準読み込み → 失敗時MOV抽出</option>
+    <option value="standard">標準読み込みのみ</option>
+    <option value="capture">MOV抽出モード</option>
+  </select>
+  <div class="info" id="loadMethodInfo">通常は「自動」推奨です。標準読み込みに失敗したMOVだけ、再生しながら音声抽出へ進みます。</div>
+
   <label>ファイル読み込み（音声・動画対応）</label>
   <div class="info">最大2トラックに読み込めます。トラック名はWave Edit内で直接編集できます。</div>
   <div class="file-row">
@@ -838,41 +920,16 @@ body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
 </section>
 
 <section class="card">
-  <p class="section-title">Wave Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
+  <p class="section-title">Timeline Edit <span class="pill" id="timeLabel">00:00 / 00:00</span></p>
   <div id="sourceStatus" class="info">現在表示：未読み込み</div>
-
-  <div class="two-track-panel" id="twoTrackPanel">
-    <div class="two-track-card active" id="trackCardMain" data-track="main">
-      <div class="two-track-name-row">
-        <div class="two-track-name" id="trackNameMain" contenteditable="true" spellcheck="false">トラック1</div>
-        <span class="two-track-badge" id="trackBadgeMain">選択中</span>
-      </div>
-      <div class="two-track-meta" id="trackMetaMain">未読み込み</div>
-      <div class="two-track-actions">
-        <button type="button" id="selectMainBtn2" class="green">選択</button>
-        <button type="button" id="clearMainBtn2" class="red">削除</button>
-      </div>
-    </div>
-    <div class="two-track-card" id="trackCardTake" data-track="take">
-      <div class="two-track-name-row">
-        <div class="two-track-name" id="trackNameTake" contenteditable="true" spellcheck="false">トラック2</div>
-        <span class="two-track-badge" id="trackBadgeTake">空</span>
-      </div>
-      <div class="two-track-meta" id="trackMetaTake">未読み込み</div>
-      <div class="two-track-actions">
-        <button type="button" id="selectTakeBtn2" class="green">選択</button>
-        <button type="button" id="clearTakeBtn2" class="red">削除</button>
-      </div>
-    </div>
-  </div>
 
   <div class="hand-mode-row">
     <button type="button" id="handMoveBtn">✋ 手のひら</button>
-    <div class="hand-help" id="handHelp">OFF：波形ドラッグは範囲選択。ON：選択中トラックをつかんで左右に移動。</div>
+    <div class="hand-help" id="handHelp">OFF：波形ドラッグは範囲選択。ON：音源クリップをつかんで左右に移動。上下2トラックは共通シークバーで同期します。</div>
   </div>
 
   <div class="row">
-    <button type="button" id="mixPreviewBtn" class="primary" disabled>▶ 2トラックMIX再生</button>
+    <button type="button" id="mixPreviewBtn" class="primary" disabled>▶ タイムライン再生</button>
     <button type="button" id="mixStopBtn" disabled>■ 停止</button>
   </div>
 
@@ -893,47 +950,77 @@ body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
     </div>
   </div>
 
-  <div class="single-track-lane" id="singleTrackLane">
-    <div class="single-track-side">
-      <div class="single-track-name" id="activeTrackEditorName">🎵 トラック1</div>
-      <div class="single-track-sub" id="activeTrackEditorSub">選択中トラックを編集</div>
-      <div class="mini-status" id="activeTrackOffsetLabel">Offset 0.00s</div>
+  <div class="shared-playhead-readout">共通シーク位置 <span id="bigTimeLabel">00:00.00</span></div>
+
+  <div class="video-timeline" id="videoTimeline">
+    <div class="timeline-ruler">
+      <div class="timeline-side-title">TIME</div>
+      <div class="timeline-ruler-canvas-wrap">
+        <canvas id="timeRulerCanvas"></canvas>
+      </div>
     </div>
 
-    <div class="single-track-wave-area">
-      <div class="single-track-wave-wrap">
-        <div class="time-ruler">
-          <canvas id="timeRulerCanvas"></canvas>
+    <div class="timeline-lane active" id="trackCardMain" data-track="main">
+      <div class="timeline-side">
+        <div class="two-track-name" id="trackNameMain" contenteditable="true" spellcheck="false">トラック1</div>
+        <span class="two-track-badge" id="trackBadgeMain">選択中</span>
+        <div class="two-track-meta" id="trackMetaMain">未読み込み</div>
+        <div class="timeline-side-actions">
+          <button type="button" id="selectMainBtn2" class="green">選択</button>
+          <button type="button" id="clearMainBtn2" class="red">削除</button>
         </div>
-        <canvas id="waveCanvas" class="wave-canvas-joined"></canvas>
       </div>
+      <div class="timeline-wave-wrap">
+        <canvas id="waveCanvas" class="timeline-wave-canvas" data-track="main"></canvas>
+        <div class="timeline-empty" id="emptyMain">トラック1：未読み込み</div>
+      </div>
+    </div>
 
-      <div class="single-edit-bar">
-        <span class="single-time-chip" id="bigTimeLabel">00:00.00</span>
-        <button id="wavePlayBtn" class="teb-btn play" disabled title="カーソル位置から再生">▶</button>
-        <button id="wavePauseBtn" class="teb-btn stop" disabled title="停止">■</button>
-        <span class="teb-sep"></span>
-        <button id="setStartBtn" class="teb-btn ab" disabled title="現在位置を開始点Aにする">A</button>
-        <button id="setEndBtn" class="teb-btn ab" disabled title="現在位置を終了点Bにする">B</button>
-        <button id="cutBtn" class="teb-btn cut" disabled title="選択範囲を削除">✂</button>
-        <button id="trimBtn" class="teb-btn cut wide" disabled title="選択範囲だけ残す">TR</button>
-        <span class="teb-sep"></span>
-        <button id="cutToClipboardBtn" class="teb-btn cut" disabled title="選択範囲を切り取り">⇥</button>
-        <button id="copyToClipboardBtn" class="teb-btn copy" disabled title="選択範囲をコピー">⎘</button>
-        <button id="pasteClipboardBtn" class="teb-btn paste" disabled title="現在位置に貼り付け">⎙</button>
-        <button id="splitBtn" class="teb-btn split" disabled title="現在位置で分割点を追加">✀</button>
-        <button id="clearClipboardBtn" class="teb-btn stop" disabled title="クリップを消去">×</button>
-        <span class="teb-sep"></span>
-        <button id="undoEditBtn" class="teb-btn undo wide" disabled title="元に戻す">↩ 0</button>
-        <button id="resetInitialBtn" class="teb-btn reset" disabled title="読み込み直後に戻す">⟲</button>
+    <div class="timeline-lane" id="trackCardTake" data-track="take">
+      <div class="timeline-side">
+        <div class="two-track-name" id="trackNameTake" contenteditable="true" spellcheck="false">トラック2</div>
+        <span class="two-track-badge" id="trackBadgeTake">空</span>
+        <div class="two-track-meta" id="trackMetaTake">未読み込み</div>
+        <div class="timeline-side-actions">
+          <button type="button" id="selectTakeBtn2" class="green">選択</button>
+          <button type="button" id="clearTakeBtn2" class="red">削除</button>
+        </div>
+      </div>
+      <div class="timeline-wave-wrap">
+        <canvas id="trackCanvasTake" class="timeline-wave-canvas" data-track="take"></canvas>
+        <div class="timeline-empty" id="emptyTake">トラック2：未読み込み</div>
       </div>
     </div>
   </div>
 
+  <div id="activeTrackEditorName" style="display:none">🎵 トラック1</div>
+  <div id="activeTrackEditorSub" style="display:none">選択中トラックを編集</div>
+  <div id="activeTrackOffsetLabel" class="mini-status">選択中トラック Offset 0.00s</div>
+
+  <div class="single-edit-bar timeline-edit-bar">
+    <span class="single-time-chip" id="timelineChip">編集</span>
+    <button id="wavePlayBtn" class="teb-btn play" disabled title="カーソル位置から選択中トラックを再生">▶</button>
+    <button id="wavePauseBtn" class="teb-btn stop" disabled title="停止">■</button>
+    <span class="teb-sep"></span>
+    <button id="setStartBtn" class="teb-btn ab" disabled title="現在位置を開始点Aにする">A</button>
+    <button id="setEndBtn" class="teb-btn ab" disabled title="現在位置を終了点Bにする">B</button>
+    <button id="cutBtn" class="teb-btn cut" disabled title="選択範囲を削除">✂</button>
+    <button id="trimBtn" class="teb-btn cut wide" disabled title="選択範囲だけ残す">TR</button>
+    <span class="teb-sep"></span>
+    <button id="cutToClipboardBtn" class="teb-btn cut" disabled title="選択範囲を切り取り">⇥</button>
+    <button id="copyToClipboardBtn" class="teb-btn copy" disabled title="選択範囲をコピー">⎘</button>
+    <button id="pasteClipboardBtn" class="teb-btn paste" disabled title="現在位置に貼り付け">⎙</button>
+    <button id="splitBtn" class="teb-btn split" disabled title="現在位置で分割点を追加">✀</button>
+    <button id="clearClipboardBtn" class="teb-btn stop" disabled title="クリップを消去">×</button>
+    <span class="teb-sep"></span>
+    <button id="undoEditBtn" class="teb-btn undo wide" disabled title="元に戻す">↩ 0</button>
+    <button id="resetInitialBtn" class="teb-btn reset" disabled title="読み込み直後に戻す">⟲</button>
+  </div>
+
   <div class="nudge-panel compact-nudge">
     <div class="nudge-title">
-      <strong>現在位置の微調整</strong>
-      <span>細かく前後移動</span>
+      <strong>共通シーク位置の微調整</strong>
+      <span>上下トラックの再生ヘッドが同時に動きます</span>
     </div>
     <div class="nudge-grid">
       <button class="nudge-btn minus" data-nudge="-5">-5s</button>
@@ -950,8 +1037,8 @@ body.hand-grab-mode #waveCanvas.dragging{cursor:grabbing !important;}
   <div id="clipboardStatus" class="advanced-status compact-advanced-status">クリップ：なし</div>
 
   <p class="small">
-    波形をタップするとその位置へ移動。ドラッグで範囲選択。A/Bで開始点・終了点を固定できます。<br>
-    PCショートカット：Space 再生/停止 ｜ A 開始点 ｜ B 終了点 ｜ ←/→ 5秒移動 ｜ Shift+←/→ 30秒移動 ｜ ,/. 0.1秒微調整 ｜ Shift+,/. 0.01秒微調整 ｜ C カット ｜ T トリム
+    動画編集アプリのように、上下2トラックを同じ時間軸で表示します。白い縦線が共通シークバーです。<br>
+    波形をタップすると上下共通の現在位置へ移動。手のひらONで、選択中トラックの音源をつかんで左右に移動できます。
   </p>
 </section>
 
@@ -1074,6 +1161,8 @@ const micClipWarn = document.getElementById("micClipWarn");
 const channelSelect = document.getElementById("channelSelect");
 const recordTarget = document.getElementById("recordTarget");
 const fileTarget = document.getElementById("fileTarget");
+const loadMethod = document.getElementById("loadMethod");
+const loadMethodInfo = document.getElementById("loadMethodInfo");
 const modeLabel = document.getElementById("modeLabel");
 const timeLabel = document.getElementById("timeLabel");
 const recordBtn = document.getElementById("recordBtn");
@@ -1717,7 +1806,7 @@ function isProbablyMovFile(file){
   return type.includes("quicktime") || name.endsWith(".mov");
 }
 
-async function decodeFileToAudioBuffer(file){
+async function decodeFileToAudioBuffer(file, method = "auto"){
   ensureAudioContext();
 
   let mediaInfo = null;
@@ -1728,48 +1817,59 @@ async function decodeFileToAudioBuffer(file){
   }
 
   const isMov = isProbablyMovFile(file);
+  const isVideo = (file.type || "").toLowerCase().startsWith("video/") || /\.(mov|mp4|m4v|webm|avi|mkv)$/i.test(file.name || "");
 
-  // 1. MOVは動画形式変換を試さず、先に「再生しながら抽出」へ進める。
-  // iPhoneカメラロールMOVでは、この方式の方が安定しやすかったため。
-  if(isMov){
-    try{
-      const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
-      captured._wavecutLoadMethod = "mov-user-tap-media-capture-original";
-      captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-      return captured;
-    }catch(userTapError){
-      console.warn("MOV user-tap media capture failed.", userTapError);
-      throw userTapError;
-    }
-  }
-
-  // 2. MP3 / WAV / M4A / MP4など、ブラウザが直接読めるものは直接AudioBuffer化
-  try{
+  const directDecode = async()=>{
     const decoded = await decodeBlobDirectly(file);
     decoded._wavecutLoadMethod = "direct";
     decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
     return decoded;
-  }catch(primaryError){
-    console.warn("Direct decode failed.", primaryError);
+  };
+
+  const userTapCapture = async(label)=>{
+    const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+    captured._wavecutLoadMethod = label || (isMov ? "mov-user-tap-media-capture-original" : "video-user-tap-media-capture-original");
+    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+    return captured;
+  };
+
+  const playableCapture = async()=>{
+    const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
+    captured._wavecutLoadMethod = "media-capture-original";
+    captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+    return captured;
+  };
+
+  // 手動指定：MOV抽出モード。iPhone MOVなど、標準読み込みに失敗しやすい時用。
+  if(method === "capture"){
+    return await userTapCapture(isMov ? "mov-user-selected-capture" : "video-user-selected-capture");
   }
 
-  // 3. MOV以外の動画は、再生キャプチャを優先
-  if((file.type || "").toLowerCase().startsWith("video/")){
+  // 手動指定：標準読み込みのみ。失敗したらそのままエラーにする。
+  if(method === "standard"){
+    const decoded = await directDecode();
+    decoded._wavecutLoadMethod = "direct-standard-only";
+    return decoded;
+  }
+
+  // 推奨：自動。まず標準読み込みを試し、失敗時だけMOV/動画抽出へ進む。
+  try{
+    const decoded = await directDecode();
+    decoded._wavecutLoadMethod = "direct-auto-first";
+    return decoded;
+  }catch(primaryError){
+    console.warn("Auto direct decode failed. Trying capture fallback if needed.", primaryError);
+  }
+
+  if(isMov || isVideo){
     try{
-      const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
-      captured._wavecutLoadMethod = "video-user-tap-media-capture-original";
-      captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-      return captured;
-    }catch(videoCaptureError){
-      console.warn("Video user-tap media capture failed.", videoCaptureError);
+      return await userTapCapture(isMov ? "mov-auto-fallback-capture" : "video-auto-fallback-capture");
+    }catch(userTapError){
+      console.warn("Auto user-tap media capture failed. Trying playable fallback.", userTapError);
     }
   }
 
-  // 4. 最終フォールバック：通常のブラウザ再生経由
-  const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
-  captured._wavecutLoadMethod = "media-capture-original";
-  captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-  return captured;
+  return await playableCapture();
 }
 
 function shouldTryRemux(file){
@@ -2577,6 +2677,21 @@ function extractAudioViaPlayableMedia(file, mediaInfo){
   });
 }
 
+function updateLoadMethodInfo(){
+  if(!loadMethodInfo || !loadMethod) return;
+  if(loadMethod.value === "auto"){
+    loadMethodInfo.textContent = "通常はこれでOKです。まず標準読み込みを試し、失敗したMOV/動画だけ抽出モードに切り替えます。";
+  }else if(loadMethod.value === "standard"){
+    loadMethodInfo.textContent = "速く読み込めますが、iPhone MOVなどは失敗する場合があります。失敗時の自動切替はしません。";
+  }else{
+    loadMethodInfo.textContent = "MOV対策用です。動画を再生しながら音声を取り込みます。抽出中は画面ロック・アプリ切替を避けてください。";
+  }
+}
+if(loadMethod){
+  loadMethod.onchange = updateLoadMethodInfo;
+  updateLoadMethodInfo();
+}
+
 fileInput.onchange = async(e)=>{
   const file = e.target.files[0];
   if(!file) return;
@@ -2586,9 +2701,11 @@ fileInput.onchange = async(e)=>{
 
   try{
     fileStatus.classList.add("extracting");
-    fileStatus.innerHTML = "読み込み中...<br>動画から音声を取り込みます。必要に応じて、動画を再生しながら音声を取り込みます。";
+    const method = loadMethod ? loadMethod.value : "auto";
+    const methodLabel = method === "auto" ? "自動" : method === "standard" ? "標準読み込みのみ" : "MOV抽出モード";
+    fileStatus.innerHTML = `読み込み中...<br>読み込み方法：${methodLabel}<br>自動の場合は、まず標準読み込みを試し、失敗時だけMOV抽出に進みます。`;
 
-    const decoded = await decodeFileToAudioBuffer(file);
+    const decoded = await decodeFileToAudioBuffer(file, method);
 
     let targetText = "";
     const targetTrack = fileTarget.value.startsWith("take") ? "take" : "main";
@@ -2622,7 +2739,9 @@ fileInput.onchange = async(e)=>{
 
   }catch(err){
     fileStatus.classList.remove("extracting");
-    alert("このファイルから音声を読み込めませんでした。端末のメモリ不足・Safari制限・動画形式・ファイル破損などの可能性があります。短い動画、またはMP4形式で再書き出しして試してください。");
+    const currentMethod = loadMethod ? loadMethod.value : "auto";
+    const extra = currentMethod === "standard" ? "\n\n標準読み込みのみで失敗した場合は、読み込み方法を『自動』または『MOV抽出モード』に変えて試してください。" : "";
+    alert("このファイルから音声を読み込めませんでした。端末のメモリ不足・Safari制限・動画形式・ファイル破損などの可能性があります。" + extra);
     console.error(err);
   }
 
@@ -2688,7 +2807,19 @@ function setFileStatus(file, targetText, decoded){
   const ext = file.name.includes(".") ? file.name.split(".").pop().toLowerCase() : "不明";
   const internalType = `AudioBuffer / 非圧縮PCM / ${decoded.sampleRate}Hz / ${decoded.numberOfChannels}ch`;
   let methodText = "読み込み方式：直接デコード";
-  if(decoded._wavecutLoadMethod === "mov-user-tap-media-capture-original"){
+  if(decoded._wavecutLoadMethod === "direct-auto-first"){
+    methodText = "読み込み方式：自動 / 標準読み込み成功";
+  }else if(decoded._wavecutLoadMethod === "direct-standard-only"){
+    methodText = "読み込み方式：標準読み込みのみ";
+  }else if(decoded._wavecutLoadMethod === "mov-auto-fallback-capture"){
+    methodText = "読み込み方式：自動 / MOV抽出モードへ切替";
+  }else if(decoded._wavecutLoadMethod === "video-auto-fallback-capture"){
+    methodText = "読み込み方式：自動 / 動画抽出モードへ切替";
+  }else if(decoded._wavecutLoadMethod === "mov-user-selected-capture"){
+    methodText = "読み込み方式：MOV抽出モード";
+  }else if(decoded._wavecutLoadMethod === "video-user-selected-capture"){
+    methodText = "読み込み方式：動画抽出モード";
+  }else if(decoded._wavecutLoadMethod === "mov-user-tap-media-capture-original"){
     methodText = "読み込み方式：動画から音声を取り込み";
   }else if(decoded._wavecutLoadMethod === "video-user-tap-media-capture-original"){
     methodText = "読み込み方式：動画から音声を取り込み";
@@ -4250,6 +4381,310 @@ if(mixStopBtn) mixStopBtn.onclick = ()=>audioEl.pause();
 
 document.addEventListener("DOMContentLoaded", updateTrackUi);
 setInterval(updateTrackUi, 800);
+
+
+
+// ─── Video-like stacked 2-track timeline override ───
+const trackCanvasTake = document.getElementById("trackCanvasTake");
+const trackCanvasMain = document.getElementById("waveCanvas");
+const emptyMain = document.getElementById("emptyMain");
+const emptyTake = document.getElementById("emptyTake");
+
+function getTimelineDuration(){
+  return Math.max(getProjectDuration(), mainBuffer?.duration || 0, takeBuffer?.duration || 0, 1);
+}
+
+function getTimelineViewport(){
+  const total = getTimelineDuration();
+  const startSec = total * viewportStart;
+  const visibleDuration = total / Math.max(zoomLevel, 1);
+  const endSec = Math.min(total, startSec + visibleDuration);
+  return {total, startSec, endSec, visibleDuration: Math.max(0.001, endSec - startSec)};
+}
+
+function ratioToProjectSec(ratio){
+  const vp = getTimelineViewport();
+  return vp.startSec + ratio * vp.visibleDuration;
+}
+
+function projectSecToRatio(sec){
+  const total = getTimelineDuration();
+  return Math.max(0, Math.min(1, sec / total));
+}
+
+function resizeCanvas(){
+  const canvases = [trackCanvasMain, trackCanvasTake, timeRulerCanvas].filter(Boolean);
+  canvases.forEach(c=>{
+    c.width = Math.max(1, Math.round(c.clientWidth * devicePixelRatio));
+    c.height = Math.max(1, Math.round(c.clientHeight * devicePixelRatio));
+  });
+}
+
+function updateViewPositionLabel(){
+  const vp = getTimelineViewport();
+  viewPositionLabel.textContent = `${formatTime(vp.startSec)} - ${formatTime(vp.endSec)}`;
+}
+
+function clampViewport(){
+  const maxStart = Math.max(0, 1 - (1 / Math.max(zoomLevel, 1)));
+  viewportStart = Math.min(maxStart, Math.max(0, viewportStart));
+  if(viewScroll) viewScroll.value = maxStart === 0 ? 0 : Math.round((viewportStart / maxStart) * 1000);
+  updateViewPositionLabel();
+}
+
+function centerViewportOnPlayhead(){
+  if(zoomLevel <= 1){ viewportStart = 0; }
+  else{ viewportStart = playheadRatio - (1 / zoomLevel) / 2; }
+  clampViewport();
+}
+
+function drawTimeRuler(){
+  const c = timeRulerCanvas;
+  if(!c) return;
+  const rctx = c.getContext("2d");
+  const w = c.width, h = c.height;
+  rctx.clearRect(0,0,w,h);
+  rctx.fillStyle = "rgba(2,6,23,.96)";
+  rctx.fillRect(0,0,w,h);
+  const vp = getTimelineViewport();
+  const step = chooseGridStep(vp.visibleDuration);
+  const firstTick = Math.ceil(vp.startSec / step) * step;
+  rctx.save();
+  rctx.font = `${12 * devicePixelRatio}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  rctx.textBaseline = "top";
+  for(let t=firstTick; t<=vp.endSec+0.001; t+=step){
+    const x = ((t - vp.startSec) / vp.visibleDuration) * w;
+    const label = formatTime(t);
+    rctx.strokeStyle = "rgba(248,250,252,.28)";
+    rctx.beginPath(); rctx.moveTo(x, h*.48); rctx.lineTo(x, h); rctx.stroke();
+    const lw = rctx.measureText(label).width;
+    rctx.fillStyle = "rgba(248,250,252,.92)";
+    rctx.fillText(label, Math.min(w-lw-4, Math.max(4, x-lw/2)), 5*devicePixelRatio);
+  }
+  const playSec = playheadRatio * vp.total;
+  const px = ((playSec - vp.startSec) / vp.visibleDuration) * w;
+  if(px>=0 && px<=w){
+    rctx.strokeStyle = "#35e0a1";
+    rctx.lineWidth = 2 * devicePixelRatio;
+    rctx.beginPath(); rctx.moveTo(px,0); rctx.lineTo(px,h); rctx.stroke();
+  }
+  rctx.restore();
+}
+
+function drawOneTrackCanvas(track, c){
+  if(!c) return;
+  const tctx = c.getContext("2d");
+  const w = c.width, h = c.height;
+  const buffer = getBufferForTrack(track);
+  const offset = Math.max(0, trackOffsets[track] || 0);
+  const vp = getTimelineViewport();
+  tctx.clearRect(0,0,w,h);
+  tctx.fillStyle = "#020617"; tctx.fillRect(0,0,w,h);
+  // horizontal guides
+  tctx.strokeStyle="rgba(255,255,255,.07)"; tctx.lineWidth=1;
+  for(let i=1;i<4;i++){ const y=h*i/4; tctx.beginPath(); tctx.moveTo(0,y); tctx.lineTo(w,y); tctx.stroke(); }
+  // vertical time grid
+  const step = chooseGridStep(vp.visibleDuration);
+  const firstTick = Math.ceil(vp.startSec / step) * step;
+  for(let t=firstTick; t<=vp.endSec+0.001; t+=step){
+    const x = ((t-vp.startSec)/vp.visibleDuration)*w;
+    tctx.strokeStyle="rgba(255,255,255,.10)";
+    tctx.beginPath(); tctx.moveTo(x,0); tctx.lineTo(x,h); tctx.stroke();
+  }
+  if(buffer){
+    const clipStartX = ((offset - vp.startSec) / vp.visibleDuration) * w;
+    const clipEndX = (((offset + buffer.duration) - vp.startSec) / vp.visibleDuration) * w;
+    const visibleX1 = Math.max(0, clipStartX);
+    const visibleX2 = Math.min(w, clipEndX);
+    if(visibleX2 > visibleX1){
+      tctx.fillStyle = track === "main" ? "rgba(53,224,161,.07)" : "rgba(79,140,255,.07)";
+      tctx.fillRect(visibleX1,0,visibleX2-visibleX1,h);
+      tctx.strokeStyle = track === "main" ? "rgba(53,224,161,.42)" : "rgba(79,140,255,.42)";
+      tctx.strokeRect(visibleX1+.5,.5,visibleX2-visibleX1-1,h-1);
+      const data = buffer.getChannelData(0);
+      const amp = h/2;
+      const grad = tctx.createLinearGradient(visibleX1,0,visibleX2,0);
+      grad.addColorStop(0, track === "main" ? "#35e0a1" : "#60a5fa");
+      grad.addColorStop(1, track === "main" ? "#4f8cff" : "#a78bfa");
+      tctx.strokeStyle = grad;
+      tctx.lineWidth = 1.2;
+      tctx.beginPath();
+      const xStart = Math.max(0, Math.floor(visibleX1));
+      const xEnd = Math.min(w, Math.ceil(visibleX2));
+      for(let x=xStart; x<xEnd; x++){
+        const projectSec = vp.startSec + (x / w) * vp.visibleDuration;
+        const localSec = projectSec - offset;
+        if(localSec < 0 || localSec > buffer.duration) continue;
+        const centerSample = Math.floor((localSec / buffer.duration) * data.length);
+        const samplesPerPx = Math.max(1, Math.floor((vp.visibleDuration / w) * buffer.sampleRate));
+        let min=1,max=-1;
+        const s0 = Math.max(0, centerSample - Math.floor(samplesPerPx/2));
+        const s1 = Math.min(data.length, s0 + samplesPerPx);
+        for(let i=s0;i<s1;i++){ const v=data[i]||0; if(v<min)min=v; if(v>max)max=v; }
+        tctx.moveTo(x,(1+min)*amp); tctx.lineTo(x,(1+max)*amp);
+      }
+      tctx.stroke();
+    }
+  }
+  // selection only for active track, using local ratio converted to project time
+  if(track === activeBufferType && buffer && selectedStart!==null && selectedEnd!==null && selectedEnd > selectedStart){
+    const selStartSec = offset + buffer.duration * selectedStart;
+    const selEndSec = offset + buffer.duration * selectedEnd;
+    const x1 = ((selStartSec - vp.startSec)/vp.visibleDuration)*w;
+    const x2 = ((selEndSec - vp.startSec)/vp.visibleDuration)*w;
+    if(x2>0 && x1<w){
+      tctx.fillStyle="rgba(79,140,255,.28)";
+      tctx.fillRect(Math.max(0,x1),0,Math.min(w,x2)-Math.max(0,x1),h);
+    }
+  }
+  // split markers only active track
+  if(track === activeBufferType && buffer && Array.isArray(splitMarkers)){
+    splitMarkers.forEach(marker=>{
+      const sec = offset + buffer.duration * marker;
+      const x = ((sec - vp.startSec)/vp.visibleDuration)*w;
+      if(x>=0 && x<=w){
+        tctx.strokeStyle="#f0abfc"; tctx.lineWidth=2; tctx.setLineDash([7,5]);
+        tctx.beginPath(); tctx.moveTo(x,0); tctx.lineTo(x,h); tctx.stroke(); tctx.setLineDash([]);
+      }
+    });
+  }
+  // common playhead
+  const playSec = playheadRatio * vp.total;
+  const px = ((playSec - vp.startSec) / vp.visibleDuration) * w;
+  if(px>=0 && px<=w){
+    tctx.strokeStyle = "#f8fafc"; tctx.lineWidth = 2.5;
+    tctx.beginPath(); tctx.moveTo(px,0); tctx.lineTo(px,h); tctx.stroke();
+    tctx.fillStyle = "#f8fafc";
+    tctx.beginPath(); tctx.arc(px, 11*devicePixelRatio, 5*devicePixelRatio, 0, Math.PI*2); tctx.fill();
+  }
+}
+
+function drawWaveform(){
+  resizeCanvas();
+  drawTimeRuler();
+  drawOneTrackCanvas("main", trackCanvasMain);
+  drawOneTrackCanvas("take", trackCanvasTake);
+  updateTimeLabel(activeBuffer());
+  updateTrackUi();
+}
+
+function updateTimeLabel(){
+  const total = getTimelineDuration();
+  const current = Math.min(total, total * playheadRatio);
+  timeLabel.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+  bigTimeLabel.textContent = formatTimeMs(current);
+}
+
+function seekToRatio(ratio){
+  playheadRatio = Math.min(1, Math.max(0, ratio));
+  if(audioEl.duration && isFinite(audioEl.duration)){
+    audioEl.currentTime = audioEl.duration * playheadRatio;
+  }
+  drawWaveform();
+}
+
+function getTrackRatioFromEvent(track, e){
+  const c = track === "take" ? trackCanvasTake : trackCanvasMain;
+  const rect = c.getBoundingClientRect();
+  const localRatio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  const projectSec = ratioToProjectSec(localRatio);
+  const buffer = getBufferForTrack(track);
+  const offset = Math.max(0, trackOffsets[track] || 0);
+  if(buffer){
+    const localSec = Math.min(buffer.duration, Math.max(0, projectSec - offset));
+    return {localRatio: buffer.duration ? localSec / buffer.duration : 0, projectRatio: projectSecToRatio(projectSec), projectSec};
+  }
+  return {localRatio:0, projectRatio:projectSecToRatio(projectSec), projectSec};
+}
+
+function attachTimelinePointer(track, c){
+  if(!c) return;
+  let dragging = false;
+  let downLocal = 0;
+  let beforeStart = null;
+  let beforeEnd = null;
+  c.addEventListener("pointerdown", e=>{
+    selectTrack(track);
+    const buffer = getBufferForTrack(track);
+    if(!buffer) return;
+    const pos = getTrackRatioFromEvent(track, e);
+    if(handMoveMode){
+      isHandDragging = true;
+      handDragStartX = e.clientX;
+      handDragStartOffset = trackOffsets[track] || 0;
+      c.classList.add("dragging");
+      try{ c.setPointerCapture(e.pointerId); }catch(_e){}
+      return;
+    }
+    dragging = true;
+    beforeStart = selectedStart; beforeEnd = selectedEnd;
+    downLocal = pos.localRatio;
+    selectedStart = downLocal; selectedEnd = downLocal;
+    refreshSelectionUi();
+    try{ c.setPointerCapture(e.pointerId); }catch(_e){}
+  });
+  c.addEventListener("pointermove", e=>{
+    const buffer = getBufferForTrack(track);
+    if(!buffer) return;
+    if(handMoveMode && isHandDragging && activeBufferType === track){
+      const rect = c.getBoundingClientRect();
+      const vp = getTimelineViewport();
+      const deltaSec = ((e.clientX - handDragStartX) / Math.max(1, rect.width)) * vp.visibleDuration;
+      trackOffsets[track] = Math.max(0, handDragStartOffset + deltaSec);
+      drawWaveform();
+      return;
+    }
+    if(!dragging) return;
+    selectedEnd = getTrackRatioFromEvent(track, e).localRatio;
+    refreshSelectionUi();
+  });
+  const finish = e=>{
+    const buffer = getBufferForTrack(track);
+    if(!buffer) return;
+    if(handMoveMode && isHandDragging && activeBufferType === track){
+      isHandDragging = false;
+      c.classList.remove("dragging");
+      drawWaveform(); updateButtons(); return;
+    }
+    if(!dragging) return;
+    dragging = false;
+    const pos = getTrackRatioFromEvent(track, e);
+    const moved = Math.abs(pos.localRatio - downLocal);
+    if(moved < 0.01){
+      selectedStart = beforeStart; selectedEnd = beforeEnd;
+      seekToRatio(pos.projectRatio);
+      updateButtons();
+    }else{
+      if(selectedStart > selectedEnd){ const tmp=selectedStart; selectedStart=selectedEnd; selectedEnd=tmp; }
+      refreshSelectionUi();
+    }
+  };
+  c.addEventListener("pointerup", finish);
+  c.addEventListener("pointercancel", ()=>{
+    dragging=false; isHandDragging=false; c.classList.remove("dragging"); refreshSelectionUi();
+  });
+}
+attachTimelinePointer("main", trackCanvasMain);
+attachTimelinePointer("take", trackCanvasTake);
+
+function syncPlayheadFromAudio(){
+  if(audioEl.duration && isFinite(audioEl.duration)){
+    playheadRatio = Math.min(1, Math.max(0, audioEl.currentTime / audioEl.duration));
+  }
+}
+
+const originalUpdateTrackUi = updateTrackUi;
+updateTrackUi = function(){
+  originalUpdateTrackUi();
+  const laneMain = document.getElementById("trackCardMain");
+  const laneTake = document.getElementById("trackCardTake");
+  if(laneMain){ laneMain.classList.toggle("active", activeBufferType === "main"); laneMain.classList.toggle("has-audio", !!mainBuffer); }
+  if(laneTake){ laneTake.classList.toggle("active", activeBufferType === "take"); laneTake.classList.toggle("has-audio", !!takeBuffer); }
+  if(activeTrackOffsetLabel) activeTrackOffsetLabel.textContent = `選択中：${getTrackLabel(activeBufferType)} / Offset ${Number(trackOffsets[activeBufferType]||0).toFixed(2)}s`;
+};
+
+// 初期描画
+setTimeout(()=>{ resizeCanvas(); drawWaveform(); updateButtons(); }, 0);
 
 
 </script>
