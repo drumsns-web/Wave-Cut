@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut 2 Track Mobile</title>
+<title>WaveCut 3 Track Mobile</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
-<meta name="apple-mobile-web-app-title" content="WaveCut 2Track">
-<meta name="application-name" content="WaveCut 2Track">
+<meta name="apple-mobile-web-app-title" content="WaveCut 3Track">
+<meta name="application-name" content="WaveCut 3Track">
 <meta name="theme-color" content="#0b1020">
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
@@ -1156,8 +1156,9 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
 </style>
 
 <style id="wavecut-2track-recovery-patch">
-  /* Recovery stable 2-track mode: keep DOM for JS compatibility, hide track 3 and add-track UI. */
-  #laneChorus, .add-track-row, #addTrackBtn, #trackCountInfo { display:none !important; }
+  /* Stable 3-track mode: keep exactly 3 tracks and hide add-track UI. */
+  .add-track-row, #addTrackBtn, #trackCountInfo { display:none !important; }
+  #laneChorus { display:grid !important; }
   @media(max-width:560px){
     header{padding:14px 10px 8px;}
     .logo{font-size:24px;}
@@ -1176,8 +1177,8 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
 <body>
 
 <header>
-  <div class="logo">Wave<span>Cut</span> 2Track</div>
-  <div class="sub">スマホ重視：2トラック音源編集・録音・MOV取り込み・MIX保存</div>
+  <div class="logo">Wave<span>Cut</span> 3Track</div>
+  <div class="sub">スマホ重視：3トラック音源編集・録音・MOV取り込み・MIX保存</div>
 </header>
 
 <main>
@@ -7695,5 +7696,408 @@ if(document.readyState === "loading"){
 })();
 
 </script>
+
+
+<!-- WaveCut stable 3-track / mic gain / file loading patch 2026-05-29 -->
+<style id="wavecut-3track-stability-patch">
+  #laneChorus{display:grid !important;}
+  .add-track-row,#addTrackBtn,#trackCountInfo{display:none !important;}
+  .track-stack-card .section-title::after{
+    content:"3トラック固定";
+    font-size:11px;
+    color:#35e0a1;
+    background:rgba(53,224,161,.12);
+    border:1px solid rgba(53,224,161,.35);
+    border-radius:999px;
+    padding:4px 8px;
+    margin-left:6px;
+  }
+</style>
+<script id="wavecut-3track-stability-patch-script">
+(function(){
+  'use strict';
+
+  const FIXED_TRACKS = ['main','take','chorus'];
+  let wavecutRawMicStream = null;
+  let wavecutLoadingBusy = false;
+
+  function liveTracks(stream){
+    return !!(stream && stream.getAudioTracks && stream.getAudioTracks().some(t => t.readyState === 'live'));
+  }
+
+  function stopStream(stream){
+    if(!stream || !stream.getTracks) return;
+    try{ stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); }catch(e){}
+  }
+
+  function supportedRecorderOptions(){
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/aac'
+    ];
+    for(const mimeType of candidates){
+      try{
+        if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mimeType)){
+          return { mimeType };
+        }
+      }catch(e){}
+    }
+    return undefined;
+  }
+
+  function refresh3TrackView(){
+    document.title = 'WaveCut 3 Track Mobile';
+    const appName = document.querySelector('meta[name="application-name"]');
+    const appleName = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if(appName) appName.setAttribute('content','WaveCut 3Track');
+    if(appleName) appleName.setAttribute('content','WaveCut 3Track');
+    const logo = document.querySelector('.logo');
+    if(logo) logo.innerHTML = 'Wave<span>Cut</span> 3Track';
+    const sub = document.querySelector('header .sub');
+    if(sub) sub.textContent = 'スマホ重視：3トラック音源編集・録音・MOV取り込み・MIX保存';
+    const laneChorusEl = document.getElementById('laneChorus');
+    if(laneChorusEl) laneChorusEl.style.display = 'grid';
+    const addRow = document.querySelector('.add-track-row');
+    if(addRow) addRow.style.display = 'none';
+    const addBtn = document.getElementById('addTrackBtn');
+    if(addBtn){ addBtn.disabled = true; addBtn.style.display = 'none'; }
+    const countInfo = document.getElementById('trackCountInfo');
+    if(countInfo){ countInfo.textContent = '3/3 tracks'; countInfo.style.display = 'none'; }
+  }
+
+  window.addEventListener('load', refresh3TrackView);
+  refresh3TrackView();
+
+  try{ localStorage.removeItem(EXTRA_STORAGE_KEY); }catch(e){}
+
+  function removeExtraTrackLanes(){
+    document.querySelectorAll('.track-lane[data-track^="extra_"]').forEach(el => el.remove());
+    try{ if(Array.isArray(extraTracks)) extraTracks.splice(0, extraTracks.length); }catch(e){}
+  }
+
+  addExtraTrack = function(){
+    removeExtraTrackLanes();
+    refresh3TrackView();
+    if(fileStatus) fileStatus.textContent = 'この版は3トラック固定仕様です。';
+    return null;
+  };
+
+  updateTrackCountInfo = function(){
+    removeExtraTrackLanes();
+    const info = document.getElementById('trackCountInfo');
+    if(info){ info.textContent = '3/3 tracks'; info.style.display = 'none'; }
+    const btn = document.getElementById('addTrackBtn');
+    if(btn){ btn.disabled = true; btn.style.display = 'none'; }
+  };
+
+  stopCurrentMicStream = function(){
+    stopStream(wavecutRawMicStream);
+    stopStream(currentStream);
+    wavecutRawMicStream = null;
+    currentStream = null;
+    try{ if(micRawSource) micRawSource.disconnect(); }catch(e){}
+    try{ if(micGainNode) micGainNode.disconnect(); }catch(e){}
+    try{ if(micProcessedDestination) micProcessedDestination.disconnect && micProcessedDestination.disconnect(); }catch(e){}
+    micRawSource = null;
+    micGainNode = null;
+    micProcessedDestination = null;
+    micPeakHold = 0;
+    if(micMeterPeak) micMeterPeak.classList.remove('show','clip');
+    if(micClipWarn) micClipWarn.classList.remove('show');
+    stopMicLevelMeter();
+    updateMicStatus(false, 'マイク：OFF（録音時に自動でONになります）');
+  };
+
+  ensureMicStream = async function(){
+    ensureAudioContext();
+    if(audioContext && audioContext.state === 'suspended'){
+      try{ await audioContext.resume(); }catch(e){}
+    }
+
+    if(liveTracks(wavecutRawMicStream) && liveTracks(currentStream) && micGainNode && micProcessedDestination){
+      micGainNode.gain.value = getMicGainLinear();
+      updateMicStatus(true, 'マイク：ON / ゲイン適用中');
+      return currentStream;
+    }
+
+    stopCurrentMicStream();
+
+    const channelCount = channelSelect ? Number(channelSelect.value || 1) : 1;
+    const deviceId = micSelect ? micSelect.value : '';
+    const constraints = {
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        channelCount: { ideal: channelCount },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    };
+
+    updateMicStatus(false, 'マイクを起動中...');
+    wavecutRawMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+
+    try{
+      micRawSource = audioContext.createMediaStreamSource(wavecutRawMicStream);
+      micGainNode = audioContext.createGain();
+      micGainNode.gain.value = getMicGainLinear();
+      micProcessedDestination = audioContext.createMediaStreamDestination();
+      micRawSource.connect(micGainNode);
+      micGainNode.connect(micProcessedDestination);
+      currentStream = micProcessedDestination.stream;
+    }catch(e){
+      console.warn('mic gain chain failed; using raw stream', e);
+      micRawSource = null;
+      micGainNode = null;
+      micProcessedDestination = null;
+      currentStream = wavecutRawMicStream;
+    }
+
+    updateMicStatus(true, micGainNode ? 'マイク：ON / ゲイン適用中' : 'マイク：ON / ゲイン非対応');
+    startMicLevelMeter(micGainNode ? micGainNode : currentStream);
+    await loadMics(false).catch(()=>{});
+    return currentStream;
+  };
+
+  startTrackRecording = async function(track){
+    ensureAudioContext();
+    recordedChunks = [];
+    selectedStart = null;
+    selectedEnd = null;
+    playheadRatio = 0;
+    if(recordTarget) recordTarget.value = track;
+
+    let recordingStream;
+    try{
+      recordingStream = await ensureMicStream();
+    }catch(e){
+      alert('マイクをONにできませんでした: ' + e.message);
+      stopCurrentMicStream();
+      return;
+    }
+
+    if(!liveTracks(recordingStream)){
+      alert('録音用のマイクストリームを取得できませんでした。マイク権限と接続を確認してください。');
+      stopCurrentMicStream();
+      return;
+    }
+
+    const options = supportedRecorderOptions();
+    try{
+      mediaRecorder = options ? new MediaRecorder(recordingStream, options) : new MediaRecorder(recordingStream);
+    }catch(e){
+      alert('このブラウザでは録音を開始できませんでした: ' + e.message);
+      stopCurrentMicStream();
+      return;
+    }
+
+    mediaRecorder.ondataavailable = e => { if(e.data && e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onerror = e => {
+      console.error('MediaRecorder error', e);
+      if(fileStatus) fileStatus.textContent = '録音エラーが発生しました。';
+    };
+    mediaRecorder.onstop = async()=>{
+      try{
+        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        if(!blob.size) throw new Error('録音データが空です');
+        const arrayBuffer = await blob.arrayBuffer();
+        const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+
+        if(track === 'take'){
+          takeInBuffer('take', decoded, '録音');
+          takeFxBaked = false; takeFxBackup = null;
+          activeBufferType = 'take';
+          fileStatus.textContent = `トラック2 録音完了 / ${formatTime(decoded.duration)}`;
+        }else if(track === 'chorus'){
+          takeInBuffer('chorus', decoded, '録音');
+          chorusFxBaked = false; chorusFxBackup = null;
+          activeBufferType = 'chorus';
+          fileStatus.textContent = `トラック3 録音完了 / ${formatTime(decoded.duration)}`;
+        }else{
+          takeInBuffer('main', decoded, '録音');
+          mainFxBaked = false; mainFxBackup = null;
+          activeBufferType = 'main';
+          fileStatus.textContent = `トラック1 録音完了 / ${formatTime(decoded.duration)}`;
+        }
+        invalidateWaveformCache(); playheadRatio = 0;
+        saveInitialEditState(track === 'take' ? 'トラック2録音直後' : track === 'chorus' ? 'トラック3録音直後' : 'トラック1録音直後');
+        resetFx(); refreshPreview(); updateButtons();
+      }catch(err){
+        alert('録音データの読み込みに失敗しました: ' + err.message);
+      }finally{
+        endLiveRecordingWave();
+        stopCurrentMicStream();
+        setTrackRecordingUI(track, false);
+      }
+    };
+
+    try{ mediaRecorder.start(250); }catch(e){ mediaRecorder.start(); }
+    beginLiveRecordingWave(track);
+    setTrackRecordingUI(track, true);
+
+    if((track === 'take' || track === 'chorus') && mainBuffer && karaokeMonitorMode && karaokeMonitorMode.value !== 'off'){
+      try{
+        await startKaraokePlaybackDuringRecord();
+        fileStatus.innerHTML = 'カラオケを再生しながら録音中（イヤホン推奨）';
+      }catch(e){
+        fileStatus.innerHTML = '録音中（カラオケ自動再生に失敗しました）';
+      }
+    }else{
+      fileStatus.innerHTML = '録音中...';
+    }
+    updateMicStatus(true, 'マイク：ON / 録音中 / ゲイン適用中');
+  };
+
+  toggleTrackRecording = function(track){
+    if(mediaRecorder && mediaRecorder.state === 'recording'){
+      stopTrackRecording(track);
+    }else{
+      startTrackRecording(track);
+    }
+  };
+
+  function isAudioFile(file){
+    const type = (file.type || '').toLowerCase();
+    const name = (file.name || '').toLowerCase();
+    return type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg|webm)$/i.test(name);
+  }
+
+  const originalDecodeFileToAudioBuffer = decodeFileToAudioBuffer;
+  decodeFileToAudioBuffer = async function(file){
+    ensureAudioContext();
+    if(audioContext && audioContext.state === 'suspended'){
+      try{ await audioContext.resume(); }catch(e){}
+    }
+
+    let mediaInfo = null;
+    try{ mediaInfo = await probeMediaFile(file); }catch(e){ console.warn('Media probe failed', e); }
+    const fileName = file.name || 'audio/video file';
+    const lower = fileName.toLowerCase();
+    const isMov = isProbablyMovFile(file);
+    const isVideo = (file.type || '').toLowerCase().startsWith('video/') || /\.(mov|mp4|m4v|avi|mkv)$/i.test(lower);
+
+    if(fileStatus){
+      fileStatus.classList.add('extracting');
+      fileStatus.innerHTML = `読み込み準備中...<br>${fileName}`;
+    }
+
+    if(isAudioFile(file) && !isMov){
+      try{
+        const direct = await decodeBlobDirectly(file);
+        direct._wavecutLoadMethod = 'direct-stable-audio';
+        direct._wavecutMediaDuration = mediaInfo?.duration || direct.duration;
+        return direct;
+      }catch(e){
+        console.warn('Direct audio decode failed; fallback to media capture', e);
+      }
+    }
+
+    if(isVideo || isMov){
+      try{
+        const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
+        captured._wavecutLoadMethod = isMov ? 'mov-user-tap-media-capture-stable' : 'video-user-tap-media-capture-stable';
+        captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+        return captured;
+      }catch(e){
+        console.warn('User tap capture failed; fallback to playable media', e);
+      }
+    }
+
+    try{
+      const playable = await extractAudioViaPlayableMedia(file, mediaInfo);
+      playable._wavecutLoadMethod = 'playable-media-capture-stable';
+      playable._wavecutMediaDuration = mediaInfo?.duration || playable.duration;
+      return playable;
+    }catch(playableError){
+      console.warn('Playable media capture failed; final fallback to original decoder', playableError);
+      const decoded = await originalDecodeFileToAudioBuffer(file);
+      decoded._wavecutLoadMethod = decoded._wavecutLoadMethod || 'original-decoder-fallback';
+      decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
+      return decoded;
+    }
+  };
+
+  loadFileToTrack = async function(file, track){
+    if(!file || wavecutLoadingBusy) return;
+    if(!FIXED_TRACKS.includes(track)) track = 'chorus';
+    wavecutLoadingBusy = true;
+    if(selectedFileName) selectedFileName.textContent = file.name;
+    ensureAudioContext();
+    try{
+      if(audioContext && audioContext.state === 'suspended'){
+        try{ await audioContext.resume(); }catch(e){}
+      }
+      fileStatus.classList.add('extracting');
+      fileStatus.innerHTML = `読み込み中...<br>${file.name}<br><span class="ffmpeg-note">大きい動画は画面ロック・別アプリ移動をしないでください。</span>`;
+      const decoded = await decodeFileToAudioBuffer(file);
+      if(track === 'take'){
+        importBufferAsClip('take', decoded, file.name);
+        takeOffsetMs = 0; takeFxBaked = false; takeFxBackup = null;
+        activeBufferType = 'take';
+        setFileStatus(file, 'トラック2として読み込み', decoded);
+      }else if(track === 'chorus'){
+        importBufferAsClip('chorus', decoded, file.name);
+        chorusOffsetMs = 0; chorusFxBaked = false; chorusFxBackup = null;
+        activeBufferType = 'chorus';
+        setFileStatus(file, 'トラック3として読み込み', decoded);
+      }else{
+        importBufferAsClip('main', decoded, file.name);
+        mainFxBaked = false; mainFxBackup = null;
+        activeBufferType = 'main';
+        setFileStatus(file, 'トラック1として読み込み', decoded);
+      }
+      saveInitialEditState(track === 'take' ? 'トラック2読込直後' : track === 'chorus' ? 'トラック3読込直後' : 'トラック1読込直後');
+      resetFx(); selectedStart = null; selectedEnd = null; playheadRatio = 0; viewportStart = 0;
+      clampViewport(); invalidateWaveformCache(); refreshPreview(); updateButtons(); refresh3TrackView();
+    }catch(err){
+      console.error(err);
+      alert('音声を読み込めませんでした。別アプリへ移動せず、短めのファイルまたはMP3/WAV/M4A/MP4/MOVで再試行してください。詳細: ' + err.message);
+      if(fileStatus) fileStatus.textContent = '読み込み失敗：' + err.message;
+    }finally{
+      wavecutLoadingBusy = false;
+      if(fileStatus) fileStatus.classList.remove('extracting');
+    }
+  };
+
+  const rebinding = [
+    ['fileInputMain','main'],
+    ['fileInputTake','take'],
+    ['fileInputChorus','chorus']
+  ];
+  rebinding.forEach(([id, track])=>{
+    const input = document.getElementById(id);
+    if(input){
+      input.onchange = e => {
+        const f = e.target.files && e.target.files[0];
+        loadFileToTrack(f, track);
+        input.value = '';
+      };
+    }
+  });
+
+  const recMap = [
+    ['recMainBtn','main'],
+    ['recTakeBtn','take'],
+    ['recChorusBtn','chorus']
+  ];
+  recMap.forEach(([id, track])=>{
+    const btn = document.getElementById(id);
+    if(btn) btn.onclick = () => toggleTrackRecording(track);
+  });
+
+  if(micGainSlider){
+    micGainSlider.addEventListener('input', ()=>{
+      if(micGainNode) micGainNode.gain.value = getMicGainLinear();
+      if(fileStatus && liveTracks(currentStream)){
+        const db = Number(micGainSlider.value || 0);
+        fileStatus.textContent = `マイクゲインを${db > 0 ? '+' : ''}${db} dBに設定しました。録音にも反映されます。`;
+      }
+    });
+  }
+})();
+</script>
+
 </body>
 </html>
