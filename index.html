@@ -6263,6 +6263,22 @@ function setupTrackCanvasInteraction(canvasEl, track){
     const x = (e.clientX != null ? e.clientX : (e.touches ? e.touches[0].clientX : 0)) - rect.left;
     return Math.max(0, Math.min(1, x / rect.width));
   }
+  function snapRatioToAB(r){
+    const st = getTrackState(track);
+    const rect = canvasEl.getBoundingClientRect();
+    const threshold = Math.max(0.006, Math.min(0.035, 14 / Math.max(1, rect.width)));
+    let best = r;
+    let bestDist = threshold;
+    if(st.selStart !== null){
+      const d = Math.abs(r - st.selStart);
+      if(d <= bestDist){ best = st.selStart; bestDist = d; }
+    }
+    if(st.selEnd !== null){
+      const d = Math.abs(r - st.selEnd);
+      if(d <= bestDist){ best = st.selEnd; }
+    }
+    return best;
+  }
   function ratioToSec(r){
     const total = getTrackTimelineDuration();
     return total * r;
@@ -6320,7 +6336,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
     const buf = bufferForTrack(track);
     if(!buf) return;
     e.preventDefault();
-    const r = getRatio(e);
+    const r = snapRatioToAB(getRatio(e));
     // 編集モードならクリップドラッグ
     if(editClipMode){
       const cl = clipAt(r);
@@ -6355,7 +6371,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
   function onMove(e){
     if(isClipDragging && dragClipState && dragClipState.track === track){
       e.preventDefault();
-      const r = getRatio(e);
+      const r = snapRatioToAB(getRatio(e));
       const curSec = ratioToSec(r);
       const delta = curSec - dragClipState.pointerStartSec;
       const clip = (trackClips[track] || []).find(c=>c.id === dragClipState.clipId);
@@ -6378,7 +6394,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
     }
     e.preventDefault();
     const st = getTrackState(track);
-    const r = getRatio(e);
+    const r = snapRatioToAB(getRatio(e));
     pointerMovedForSelection = pointerMovedForSelection || Math.abs(r - dragStartRatio) > 0.005;
     if(!pointerMovedForSelection) return;
     if(r < dragStartRatio){ st.selStart = r; st.selEnd = dragStartRatio; }
@@ -6522,6 +6538,9 @@ drawMiniTrackWave = function(canvasEl, track, labelColor){
     const sec = offsetSec + buf.duration * ratio;
     if(sec < viewStartSec || sec > viewStartSec + viewDur) return;
     const x = ((sec - viewStartSec) / viewDur) * w;
+    cctx.strokeStyle = "rgba(2,6,23,.95)";
+    cctx.lineWidth = 4 * dpr;
+    cctx.beginPath(); cctx.moveTo(x, pointY); cctx.lineTo(x, h); cctx.stroke();
     cctx.strokeStyle = color;
     cctx.lineWidth = 2 * dpr;
     cctx.beginPath(); cctx.moveTo(x, pointY); cctx.lineTo(x, h); cctx.stroke();
@@ -6545,8 +6564,8 @@ drawMiniTrackWave = function(canvasEl, track, labelColor){
       cctx.fillRect(x1, pointY, x2 - x1, h - pointY);
     }
   }
-  drawPointMarker(st.selStart, "A", "#35e0a1");
-  drawPointMarker(st.selEnd, "B", "#fbbf24");
+  drawPointMarker(st.selStart, "A", "#ff3355");
+  drawPointMarker(st.selEnd, "B", "#ff7a18");
 
   // プレイヘッド
   if(st.playheadRatio !== null){
