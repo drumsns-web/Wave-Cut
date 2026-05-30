@@ -6051,11 +6051,14 @@ pasteClipboardBtn.onclick=async()=>{
   saveUndoState("貼り付け");
   const pasteRatio = playheadRatio || 0;
   try{
-    const inserted = await insertBufferAtRatio(buffer, clipboardBuffer, pasteRatio);
-    setActiveBuffer(inserted);
+    const track = activeBufferType;
+    const st = getTrackState(track);
+    st.playheadRatio = pasteRatio;
+    const pasted = pasteClipIntoTrackAtPlayhead(track, clipboardBuffer);
+    if(!pasted) return;
     clearFxBackupForActiveEdit();
     selectedStart=null; selectedEnd=null;
-    playheadRatio = Math.min(1, Math.max(0, (buffer.length * pasteRatio + clipboardBuffer.length) / inserted.length));
+    playheadRatio = st.playheadRatio;
     centerViewportOnPlayhead();
     await refreshPreview(); updateButtons();
   }catch(err){
@@ -6745,6 +6748,34 @@ function performTrackCopy(track){
   fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
 }
 
+function markTrackAudioChanged(track){
+  if(track === "take")   { takeFxBaked = false; takeFxBackup = null; }
+  else if(track === "chorus"){ chorusFxBaked = false; chorusFxBackup = null; }
+  else if(isExtraTrack(track)){ const t=getExtraTrack(track); if(t){ t.fxBaked=false; t.fxBackup=null; } }
+  else { mainFxBaked = false; mainFxBackup = null; }
+}
+
+function pasteClipIntoTrackAtPlayhead(track, clipBuffer){
+  const st = getTrackState(track);
+  const current = bufferForTrack(track);
+  if(!clipBuffer) return null;
+  if(!trackClips[track]) trackClips[track] = [];
+
+  const timelineDur = current ? current.duration : getTrackTimelineDuration();
+  const pasteSec = Math.max(0, (timelineDur || 0) * (st.playheadRatio || 0));
+  const pasted = makeClip(cloneBuffer(clipBuffer), pasteSec, "paste");
+  trackClips[track].push(pasted);
+  normalizeTrackClips(track);
+  rebuildTrackBuffer(track);
+  markTrackAudioChanged(track);
+
+  const nextBuf = bufferForTrack(track);
+  if(nextBuf){
+    st.playheadRatio = Math.min(1, (pasted.startSec + pasted.buffer.duration) / nextBuf.duration);
+  }
+  return pasted;
+}
+
 async function performTrackPaste(track){
   const buf  = bufferForTrack(track);
   const st   = getTrackState(track);
@@ -6752,14 +6783,12 @@ async function performTrackPaste(track){
   if(!buf || !clip) return;
   trackPushUndo(track, "貼り付け");
   try{
-    const inserted = await insertBufferAtRatio(buf, clip, st.playheadRatio || 0);
-    setTrackBuffer(track, inserted);
-    st.selStart = null; st.selEnd = null;
-    st.playheadRatio = Math.min(1, (buf.length * st.playheadRatio + clip.length) / inserted.length);
+    const pasted = pasteClipIntoTrackAtPlayhead(track, clip);
+    if(!pasted) return;
     syncActiveSelectionFromTrack(track);
     invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
     clearTrackSelection(track);
-    fileStatus.textContent = "⎙ 貼り付けました";
+    fileStatus.textContent = `⎙ ${formatTimeMs(pasted.buffer.duration)} を ${formatTimeMs(pasted.startSec)} に貼り付けました`;
   }catch(err){ alert("貼り付けに失敗: " + err.message); }
 }
 
@@ -7053,12 +7082,12 @@ function setupTrackEditBar(track){
     if(!buf || !clip) return;
     trackPushUndo(track, "貼り付け");
     try{
-      const inserted = await insertBufferAtRatio(buf, clip, st.playheadRatio || 0);
-      setTrackBuffer(track, inserted);
-      st.selStart = null; st.selEnd = null;
-      st.playheadRatio = Math.min(1, (buf.length * st.playheadRatio + clip.length) / inserted.length);
+      const pasted = pasteClipIntoTrackAtPlayhead(track, clip);
+      if(!pasted) return;
+      syncActiveSelectionFromTrack(track);
       invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-      fileStatus.textContent = "⎙ 貼り付けました";
+      clearTrackSelection(track);
+      fileStatus.textContent = `⎙ ${formatTimeMs(pasted.buffer.duration)} を ${formatTimeMs(pasted.startSec)} に貼り付けました`;
     }catch(err){ alert("貼り付けに失敗: " + err.message); }
   };
 
