@@ -610,6 +610,15 @@ audio{width:100%;margin:8px 0}
 .teb-btn.teb-paste:not(:disabled){ color:#4ade80; border-color:rgba(74,222,128,.3)  !important; }
 .teb-btn.teb-shift-l,.teb-btn.teb-shift-r{ color:#fbbf24; }
 .teb-btn.teb-undo:not(:disabled) { color:#a78bfa; border-color:rgba(167,139,250,.3) !important; }
+.teb-btn.teb-menu:not(:disabled){
+  color:#fbbf24;
+  border-color:rgba(251,191,36,.35) !important;
+  background:rgba(251,191,36,.09);
+}
+.teb-btn.teb-ab:not(:disabled){
+  color:#35e0a1;
+  border-color:rgba(53,224,161,.30) !important;
+}
 .teb-sep{
   width:1px;height:18px;background:rgba(255,255,255,.10);
   flex-shrink:0;margin:0 1px;
@@ -750,6 +759,102 @@ audio{width:100%;margin:8px 0}
   flex-shrink:0;
 }
 .track-edit-bar::-webkit-scrollbar{display:none;}
+
+.track-edit-popup-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:980;
+  display:none;
+  background:rgba(2,6,23,.62);
+  backdrop-filter:blur(6px);
+}
+.track-edit-popup-backdrop.open{display:block;}
+.track-edit-popup{
+  position:fixed;
+  left:50%;
+  bottom:0;
+  transform:translateX(-50%);
+  width:min(520px,100%);
+  z-index:981;
+  display:none;
+  padding:16px 16px 26px;
+  border:1px solid rgba(255,255,255,.14);
+  border-bottom:none;
+  border-radius:20px 20px 0 0;
+  background:linear-gradient(180deg,#1e293b,#0f172a);
+  box-shadow:0 -18px 60px rgba(0,0,0,.55);
+}
+.track-edit-popup.open{display:block;}
+.track-edit-popup-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:12px;
+}
+.track-edit-popup-title{
+  font-size:15px;
+  font-weight:900;
+  color:#f8fafc;
+}
+.track-edit-popup-sub{
+  display:block;
+  margin-top:3px;
+  color:#94a3b8;
+  font-size:11px;
+  font-weight:700;
+}
+.track-edit-popup-close{
+  width:34px !important;
+  height:34px !important;
+  padding:0 !important;
+  margin:0 !important;
+  border-radius:50% !important;
+  font-size:15px !important;
+  background:rgba(255,255,255,.08) !important;
+  color:#cbd5e1 !important;
+}
+.track-edit-popup-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.track-edit-action{
+  min-height:54px !important;
+  margin:0 !important;
+  padding:10px 10px !important;
+  border-radius:12px !important;
+  display:flex !important;
+  align-items:center;
+  justify-content:flex-start;
+  gap:9px;
+  text-align:left;
+  font-size:13px !important;
+  line-height:1.2;
+}
+.track-edit-action .icon{
+  display:inline-flex;
+  width:26px;
+  height:26px;
+  align-items:center;
+  justify-content:center;
+  flex:0 0 auto;
+  border-radius:8px;
+  background:rgba(255,255,255,.08);
+  font-size:15px;
+}
+.track-edit-action small{
+  display:block;
+  margin-top:2px;
+  color:#94a3b8;
+  font-size:10px;
+  font-weight:700;
+}
+@media (max-width:520px){
+  .track-edit-popup{padding:14px 12px 22px;}
+  .track-edit-popup-grid{grid-template-columns:1fr;}
+  .track-edit-action{min-height:50px !important;}
+}
 
 /* FXパネル */
 .track-fx-panel{
@@ -1352,10 +1457,13 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayMain" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopMain" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut"   id="tebCutMain"   title="選択をカット（クリップへ）" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutMain" data-track="main" title="編集メニュー" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitMain" title="カーソル位置で分割">✂️</button>
+          <span class="teb-sep"></span>
+          <button class="teb-btn teb-ab" id="tebSetAMain" data-track="main" title="A地点を設定" disabled>A</button>
+          <button class="teb-btn teb-ab" id="tebSetBMain" data-track="main" title="B地点を設定" disabled>B</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartMain" data-track="main" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -1444,10 +1552,13 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayTake" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopTake" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut"   id="tebCutTake"   title="選択をカット（クリップへ）" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutTake" data-track="take" title="編集メニュー" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitTake" title="カーソル位置で分割">✂️</button>
+          <span class="teb-sep"></span>
+          <button class="teb-btn teb-ab" id="tebSetATake" data-track="take" title="A地点を設定" disabled>A</button>
+          <button class="teb-btn teb-ab" id="tebSetBTake" data-track="take" title="B地点を設定" disabled>B</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartTake" data-track="take" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -1555,10 +1666,13 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayChorus" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopChorus" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut"   id="tebCutChorus"   title="選択をカット（クリップへ）" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutChorus" data-track="chorus" title="編集メニュー" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitChorus" title="カーソル位置で分割">✂️</button>
+          <span class="teb-sep"></span>
+          <button class="teb-btn teb-ab" id="tebSetAChorus" data-track="chorus" title="A地点を設定" disabled>A</button>
+          <button class="teb-btn teb-ab" id="tebSetBChorus" data-track="chorus" title="B地点を設定" disabled>B</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestartChorus" data-track="chorus" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -1636,6 +1750,27 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
   <div id="selectedFileName" class="file-name"></div>
   <audio id="audio" controls style="display:none"></audio>
   <video id="mediaProbe" playsinline muted style="display:none"></video>
+
+  <div id="trackEditPopupBackdrop" class="track-edit-popup-backdrop"></div>
+  <div id="trackEditPopup" class="track-edit-popup" role="dialog" aria-modal="true" aria-labelledby="trackEditPopupTitle">
+    <div class="track-edit-popup-header">
+      <div>
+        <div class="track-edit-popup-title" id="trackEditPopupTitle">編集メニュー</div>
+        <span class="track-edit-popup-sub" id="trackEditPopupSub">トラックを選択中</span>
+      </div>
+      <button type="button" class="track-edit-popup-close" id="trackEditPopupClose" aria-label="閉じる">×</button>
+    </div>
+    <div class="track-edit-popup-grid">
+      <button type="button" class="track-edit-action" data-edit-action="setA"><span class="icon">A</span><span>A地点を設定<small>現在位置を開始点にする</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="setB"><span class="icon">B</span><span>B地点を設定<small>現在位置を終了点にする</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="cut"><span class="icon">✂</span><span>カット<small>A-B範囲を切り取る</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="split"><span class="icon">✂️</span><span>分割<small>カーソル位置で分ける</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="copy"><span class="icon">⎘</span><span>コピー<small>A-B範囲を保持</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="paste"><span class="icon">⎙</span><span>ペースト<small>カーソル位置へ貼り付け</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="restart"><span class="icon">⏮</span><span>最初へ<small>カーソルを先頭へ戻す</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="undo"><span class="icon">↩</span><span>元に戻す<small>直前の編集を取り消す</small></span></button>
+    </div>
+  </div>
 
   <div class="track-mini-controls" style="margin-top:10px">
     <button id="trackAllPlayBtn" class="primary" disabled>▶ 全曲再生</button>
@@ -5071,10 +5206,13 @@ function createExtraTrackHTML(id, emoji, name){
           <button class="teb-btn teb-play" id="tebPlay${c1}" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStop${c1}" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut"   id="tebCut${c1}"   title="選択をカット" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCut${c1}" data-track="${id}" title="編集メニュー" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplit${c1}" title="カーソル位置で分割">✂️</button>
+          <span class="teb-sep"></span>
+          <button class="teb-btn teb-ab" id="tebSetA${c1}" data-track="${id}" title="A地点を設定" disabled>A</button>
+          <button class="teb-btn teb-ab" id="tebSetB${c1}" data-track="${id}" title="B地点を設定" disabled>B</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-restart" id="tebRestart${c1}" data-track="${id}" title="最初に戻る">⏮</button>
           <span class="teb-sep"></span>
@@ -5149,6 +5287,7 @@ function wireUpExtraTrack(id){
   }
   // edit-bar（再生・カット・ペースト等）
   if(typeof setupTrackEditBar === "function") setupTrackEditBar(id);
+  if(typeof installTrackEditMenuButtons === "function") installTrackEditMenuButtons(id);
   // ファイル読込
   const fileInput = document.getElementById("fileInput" + c1);
   if(fileInput) fileInput.onchange = e => { loadFileToTrack(e.target.files[0], id); fileInput.value = ""; };
@@ -6362,7 +6501,7 @@ function formatGridTime(sec){
 function updateTrackEditBar(track){
   const st  = getTrackState(track);
   const buf = bufferForTrack(track);
-  const hasSel = buf && st.selStart !== null && st.selEnd !== null && (st.selEnd - st.selStart) > 0.005;
+  const hasSel = buf && st.selStart !== null && st.selEnd !== null && Math.abs(st.selEnd - st.selStart) > 0.005;
   const hasClip = !!st.clipboard || !!clipboardBuffer; // グローバルclipboardも使用可
 
   const ids = {
@@ -6370,12 +6509,16 @@ function updateTrackEditBar(track){
     copy:  `tebCopy${cap(track)}`,
     paste: `tebPaste${cap(track)}`,
     undo:  `tebUndo${cap(track)}`,
+    setA:  `tebSetA${cap(track)}`,
+    setB:  `tebSetB${cap(track)}`,
   };
   const el = id => document.getElementById(id);
-  if(el(ids.cut))   el(ids.cut).disabled   = !hasSel;
+  if(el(ids.cut))   el(ids.cut).disabled   = !buf;
   if(el(ids.copy))  el(ids.copy).disabled  = !hasSel;
   if(el(ids.paste)) el(ids.paste).disabled = !(buf && hasClip);
   if(el(ids.undo))  el(ids.undo).disabled  = !st.undoStack.length;
+  if(el(ids.setA))  el(ids.setA).disabled  = !buf;
+  if(el(ids.setB))  el(ids.setB).disabled  = !buf;
 
   // 時刻表示
   const tl = document.getElementById(`timeLabel${cap(track)}`);
@@ -6386,7 +6529,225 @@ function updateTrackEditBar(track){
     tl.textContent = "--:--.-";
   }
 }
-function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g,""); }
+
+let trackEditPopupTrack = null;
+
+function syncActiveSelectionFromTrack(track){
+  const st = getTrackState(track);
+  activeBufferType = track;
+  playheadRatio = st.playheadRatio || 0;
+  selectedStart = st.selStart;
+  selectedEnd = st.selEnd;
+}
+
+function trackDisplayName(track){
+  const el = document.getElementById("trackName" + cap(track));
+  if(el) return el.textContent.trim();
+  const extra = typeof getExtraTrack === "function" ? getExtraTrack(track) : null;
+  if(extra) return `${extra.emoji || ""} ${extra.name || "トラック"}`.trim();
+  if(track === "main") return "トラック1";
+  if(track === "take") return "トラック2";
+  if(track === "chorus") return "トラック3";
+  return "トラック";
+}
+
+function setTrackPoint(track, point){
+  const buf = bufferForTrack(track);
+  if(!buf) return;
+  const st = getTrackState(track);
+  const ratio = Math.max(0, Math.min(1, st.playheadRatio || 0));
+
+  if(point === "A"){
+    st.selStart = ratio;
+    if(st.selEnd !== null && st.selEnd <= st.selStart) st.selEnd = null;
+    fileStatus.textContent = `${trackDisplayName(track)} のA地点を ${formatTimeMs(buf.duration * ratio)} に設定しました`;
+  }else{
+    if(st.selStart === null){
+      st.selStart = ratio;
+      st.selEnd = null;
+      fileStatus.textContent = `${trackDisplayName(track)} のA地点を ${formatTimeMs(buf.duration * ratio)} に設定しました。B地点はAより後ろで設定してください`;
+    }else if(ratio <= st.selStart){
+      alert("B地点はA地点より後ろに設定してください。");
+      st.selEnd = null;
+    }else{
+      st.selEnd = ratio;
+      fileStatus.textContent = `${trackDisplayName(track)} のB地点を ${formatTimeMs(buf.duration * ratio)} に設定しました`;
+    }
+  }
+
+  if(activeBufferType === track) syncActiveSelectionFromTrack(track);
+  drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
+  updateTrackEditBar(track);
+  updateButtons();
+}
+
+function performTrackCut(track){
+  const buf = bufferForTrack(track);
+  const st  = getTrackState(track);
+  if(!buf || st.selStart === null || st.selEnd === null) return;
+  trackPushUndo(track, "カット");
+  const s = Math.min(st.selStart, st.selEnd);
+  const e = Math.max(st.selStart, st.selEnd);
+  const totalDur = buf.duration;
+  const startSec = s * totalDur;
+  const endSec   = e * totalDur;
+  const clipped = cutTimeRangeFromClips(track, startSec, endSec);
+  if(clipped){
+    st.clipboard = clipped;
+    clipboardBuffer = clipped;
+  }
+  if(track === "take")   { takeFxBaked = false; takeFxBackup = null; }
+  else if(track === "chorus"){ chorusFxBaked = false; chorusFxBackup = null; }
+  else if(isExtraTrack(track)){ const t=getExtraTrack(track); if(t){ t.fxBaked=false; t.fxBackup=null; } }
+  else { mainFxBaked = false; mainFxBackup = null; }
+  if(activeBufferType === track){ invalidateWaveformCache(); refreshPreview(); }
+  st.selStart = null; st.selEnd = null;
+  const newDur = bufferForTrack(track) ? bufferForTrack(track).duration : 1;
+  st.playheadRatio = Math.min(1, startSec / newDur);
+  syncActiveSelectionFromTrack(track);
+  invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+  const clipCount = trackClips[track].length;
+  fileStatus.textContent = `✂ ${formatTimeMs(endSec - startSec)} をカット（クリップ数: ${clipCount}）`;
+}
+
+function performTrackCopy(track){
+  const buf = bufferForTrack(track);
+  const st  = getTrackState(track);
+  if(!buf || st.selStart === null || st.selEnd === null) return;
+  const s = Math.min(st.selStart, st.selEnd);
+  const e = Math.max(st.selStart, st.selEnd);
+  st.clipboard = copyAudioRange(buf, s, e);
+  clipboardBuffer = st.clipboard;
+  st.selStart = null; st.selEnd = null;
+  syncActiveSelectionFromTrack(track);
+  drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
+  updateTrackEditBar(track);
+  updateButtons();
+  fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
+}
+
+async function performTrackPaste(track){
+  const buf  = bufferForTrack(track);
+  const st   = getTrackState(track);
+  const clip = st.clipboard || clipboardBuffer;
+  if(!buf || !clip) return;
+  trackPushUndo(track, "貼り付け");
+  try{
+    const inserted = await insertBufferAtRatio(buf, clip, st.playheadRatio || 0);
+    setTrackBuffer(track, inserted);
+    st.selStart = null; st.selEnd = null;
+    st.playheadRatio = Math.min(1, (buf.length * st.playheadRatio + clip.length) / inserted.length);
+    syncActiveSelectionFromTrack(track);
+    invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+    fileStatus.textContent = "⎙ 貼り付けました";
+  }catch(err){ alert("貼り付けに失敗: " + err.message); }
+}
+
+function performTrackSplit(track){
+  const buf = bufferForTrack(track);
+  const st  = getTrackState(track);
+  if(!buf){ if(fileStatus) fileStatus.textContent = "このトラックに音源がありません"; return; }
+  const total = buf.duration;
+  const splitSec = total * (st.playheadRatio || 0) - offsetForTrack(track);
+  trackPushUndo(track, "分割");
+  const ok = splitClipAtSec(track, splitSec);
+  if(ok){
+    if(track === "take")   { takeFxBaked = false; takeFxBackup = null; }
+    else if(track === "chorus"){ chorusFxBaked = false; chorusFxBackup = null; }
+    else if(isExtraTrack(track)){ const t=getExtraTrack(track); if(t){ t.fxBaked=false; t.fxBackup=null; } }
+    else { mainFxBaked = false; mainFxBackup = null; }
+    if(activeBufferType === track){ invalidateWaveformCache(); refreshPreview(); }
+    invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+    const clipCount = (trackClips[track]||[]).length;
+    if(fileStatus) fileStatus.textContent = `✂️ 分割しました（クリップ数: ${clipCount}）`;
+  } else {
+    if(fileStatus) fileStatus.textContent = "カーソル位置にクリップがないか、端のため分割できません";
+  }
+}
+
+function closeTrackEditPopup(){
+  const popup = document.getElementById("trackEditPopup");
+  const backdrop = document.getElementById("trackEditPopupBackdrop");
+  if(popup) popup.classList.remove("open");
+  if(backdrop) backdrop.classList.remove("open");
+  trackEditPopupTrack = null;
+}
+
+function refreshTrackEditPopupButtons(track){
+  const popup = document.getElementById("trackEditPopup");
+  if(!popup) return;
+  const st = getTrackState(track);
+  const buf = bufferForTrack(track);
+  const hasSel = buf && st.selStart !== null && st.selEnd !== null && Math.abs(st.selEnd - st.selStart) > 0.005;
+  const hasClip = !!st.clipboard || !!clipboardBuffer;
+  popup.querySelectorAll("[data-edit-action]").forEach(btn=>{
+    const action = btn.dataset.editAction;
+    btn.disabled =
+      (["setA","setB","split","restart"].includes(action) && !buf) ||
+      (["cut","copy"].includes(action) && !hasSel) ||
+      (action === "paste" && !(buf && hasClip)) ||
+      (action === "undo" && !st.undoStack.length);
+  });
+}
+
+function openTrackEditPopup(track){
+  const buf = bufferForTrack(track);
+  if(!buf) return;
+  trackEditPopupTrack = track;
+  activeBufferType = track;
+  const popup = document.getElementById("trackEditPopup");
+  const backdrop = document.getElementById("trackEditPopupBackdrop");
+  const sub = document.getElementById("trackEditPopupSub");
+  if(sub) sub.textContent = `${trackDisplayName(track)} / 現在位置 ${formatTimeMs(buf.duration * (getTrackState(track).playheadRatio || 0))}`;
+  refreshTrackEditPopupButtons(track);
+  if(backdrop) backdrop.classList.add("open");
+  if(popup) popup.classList.add("open");
+}
+
+function installTrackEditPopup(){
+  const popup = document.getElementById("trackEditPopup");
+  const backdrop = document.getElementById("trackEditPopupBackdrop");
+  const closeBtn = document.getElementById("trackEditPopupClose");
+  if(backdrop) backdrop.onclick = closeTrackEditPopup;
+  if(closeBtn) closeBtn.onclick = closeTrackEditPopup;
+  if(popup){
+    popup.querySelectorAll("[data-edit-action]").forEach(btn=>{
+      btn.onclick = async ()=>{
+        const track = trackEditPopupTrack;
+        if(!track) return;
+        const action = btn.dataset.editAction;
+        if(action === "setA") setTrackPoint(track, "A");
+        else if(action === "setB") setTrackPoint(track, "B");
+        else if(action === "cut") performTrackCut(track);
+        else if(action === "copy") performTrackCopy(track);
+        else if(action === "paste") await performTrackPaste(track);
+        else if(action === "split") performTrackSplit(track);
+        else if(action === "restart"){
+          const st = getTrackState(track);
+          st.playheadRatio = 0;
+          syncActiveSelectionFromTrack(track);
+          drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
+          updateTrackEditBar(track);
+          fileStatus.textContent = `${trackDisplayName(track)} を最初に戻しました`;
+        }else if(action === "undo"){
+          trackUndo(track);
+        }
+        closeTrackEditPopup();
+      };
+    });
+  }
+}
+
+function installTrackEditMenuButtons(track){
+  const c = cap(track);
+  const menuBtn = document.getElementById(`tebCut${c}`);
+  if(menuBtn) menuBtn.onclick = ()=>openTrackEditPopup(track);
+  const setABtn = document.getElementById(`tebSetA${c}`);
+  if(setABtn) setABtn.onclick = ()=>setTrackPoint(track, "A");
+  const setBBtn = document.getElementById(`tebSetB${c}`);
+  if(setBBtn) setBBtn.onclick = ()=>setTrackPoint(track, "B");
+}
 
 // ── edit-bar ボタンのイベント設定 ───────────────────────────────
 function setupTrackEditBar(track){
@@ -6606,7 +6967,9 @@ function setTrackBuffer(track, buf){
   const canvas_ = document.getElementById(`trackCanvas${c}`);
   setupTrackCanvasInteraction(canvas_, track);
   setupTrackEditBar(track);
+  installTrackEditMenuButtons(track);
 });
+installTrackEditPopup();
 
 // ── トラック直接再生（AudioContext方式）────────────────────────────
 function stopTrackPlayback(){
