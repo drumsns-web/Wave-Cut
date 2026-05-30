@@ -858,6 +858,10 @@ audio{width:100%;margin:8px 0}
   font-size:10px;
   font-weight:700;
 }
+.track-edit-action.active{
+  border-color:rgba(251,191,36,.42) !important;
+  background:rgba(251,191,36,.14) !important;
+}
 @media (max-width:520px){
   .track-edit-popup{
     top:max(10px, env(safe-area-inset-top));
@@ -1777,11 +1781,21 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
       <button type="button" class="track-edit-popup-close" id="trackEditPopupClose" aria-label="閉じる">×</button>
     </div>
     <div class="track-edit-popup-grid">
+      <button type="button" class="track-edit-action" data-edit-action="play"><span class="icon">▶</span><span>再生<small>現在位置から再生</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="stop"><span class="icon">■</span><span>停止<small>再生を止める</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="setA"><span class="icon">A</span><span>A地点を設定<small>波形を見ながら開始点</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="setB"><span class="icon">B</span><span>B地点を設定<small>波形を見ながら終了点</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="cut"><span class="icon">✂</span><span>カット<small>A-B範囲を切り取る</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="split"><span class="icon">✂️</span><span>分割<small>カーソル位置で分ける</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="copy"><span class="icon">⎘</span><span>コピー<small>A-B範囲を保持</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="paste"><span class="icon">⎙</span><span>ペースト<small>カーソル位置へ貼り付け</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="restart"><span class="icon">⏮</span><span>最初へ<small>カーソルを先頭へ戻す</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="nudge-500"><span class="icon">⏪</span><span>-500ms<small>トラック全体を前へ</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="nudge-100"><span class="icon">‹</span><span>-100ms<small>トラック全体を前へ</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="nudge100"><span class="icon">›</span><span>+100ms<small>トラック全体を後ろへ</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="nudge500"><span class="icon">⏩</span><span>+500ms<small>トラック全体を後ろへ</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="hand"><span class="icon">✋</span><span>手のひら<small>分割クリップをつかんで移動</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="fx"><span class="icon">FX</span><span>エフェクト<small>FXパネルを開く</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="undo"><span class="icon">↩</span><span>元に戻す<small>直前の編集を取り消す</small></span></button>
     </div>
   </div>
@@ -6190,11 +6204,25 @@ const TRACK_MAX_UNDO = 10;
 
 function getTrackState(track){ return trackState[track] || trackState.main; }
 
+function cloneClipList(track){
+  return (trackClips[track] || []).map(cl => ({
+    id: cl.id,
+    buffer: cloneBuffer(cl.buffer),
+    startSec: cl.startSec,
+    label: cl.label
+  }));
+}
+
 function trackPushUndo(track, label){
   const st = getTrackState(track);
   const buf = bufferForTrack(track);
   if(!buf) return;
-  st.undoStack.push({ label, buffer: cloneBuffer(buf), offsetMs: getTrackOffsetMs(track) });
+  st.undoStack.push({
+    label,
+    buffer: cloneBuffer(buf),
+    clips: cloneClipList(track),
+    offsetMs: getTrackOffsetMs(track)
+  });
   if(st.undoStack.length > TRACK_MAX_UNDO) st.undoStack.shift();
   updateTrackEditBar(track);
 }
@@ -6203,9 +6231,23 @@ function trackUndo(track){
   const st = getTrackState(track);
   if(!st.undoStack.length) return;
   const snap = st.undoStack.pop();
-  if(track === "take")   { takeBuffer = snap.buffer;   takeOffsetMs   = snap.offsetMs; }
-  else if(track === "chorus"){ chorusBuffer = snap.buffer; chorusOffsetMs = snap.offsetMs; }
-  else                   { mainBuffer  = snap.buffer; }
+  if(snap.clips){
+    trackClips[track] = snap.clips.map(cl => ({
+      id: cl.id,
+      buffer: cloneBuffer(cl.buffer),
+      startSec: cl.startSec,
+      label: cl.label
+    }));
+    rebuildTrackBuffer(track);
+  }else{
+    if(track === "take")   { takeBuffer = snap.buffer; }
+    else if(track === "chorus"){ chorusBuffer = snap.buffer; }
+    else                   { mainBuffer  = snap.buffer; }
+    trackClips[track] = [makeClip(snap.buffer, 0, "undo")];
+  }
+  if(track === "take") takeOffsetMs = snap.offsetMs;
+  else if(track === "chorus") chorusOffsetMs = snap.offsetMs;
+  else if(isExtraTrack(track)){ const t = getExtraTrack(track); if(t) t.offsetMs = snap.offsetMs; }
   st.selStart = null; st.selEnd = null; st.playheadRatio = 0;
   invalidateWaveformCache();
   drawStackedTimelines();
@@ -6266,6 +6308,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
     isDragging = false;
     const st = getTrackState(track);
     st.selStart = null; st.selEnd = null;
+    trackPushUndo(track, "クリップ移動");
     dragClipState = {
       track,
       clipId: clip.id,
@@ -6700,6 +6743,61 @@ function performTrackSplit(track){
   }
 }
 
+function performTrackRestart(track){
+  const st = getTrackState(track);
+  st.playheadRatio = 0;
+  syncActiveSelectionFromTrack(track);
+  drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
+  updateTrackEditBar(track);
+  fileStatus.textContent = `${trackDisplayName(track)} を最初に戻しました`;
+}
+
+function performTrackNudge(track, ms){
+  if(track === "main") return;
+  if(track === "take"){
+    takeOffsetMs += ms;
+    if(takeOffsetLabel) takeOffsetLabel.textContent = (takeOffsetMs>=0?"+":"")+takeOffsetMs+" ms";
+  }else if(track === "chorus"){
+    chorusOffsetMs += ms;
+    if(chorusOffsetLabel) chorusOffsetLabel.textContent = (chorusOffsetMs>=0?"+":"")+chorusOffsetMs+" ms";
+  }else if(isExtraTrack(track)){
+    const t = getExtraTrack(track); if(t) t.offsetMs += ms;
+  }
+  const qlabel = document.getElementById("quickOffsetLabel" + cap(track));
+  if(qlabel){
+    let cur = 0;
+    if(track === "take") cur = takeOffsetMs;
+    else if(track === "chorus") cur = chorusOffsetMs;
+    else if(isExtraTrack(track)){ const t2 = getExtraTrack(track); cur = t2 ? t2.offsetMs : 0; }
+    qlabel.textContent = (cur>=0?"+":"")+cur;
+    qlabel.classList.toggle("nonzero", cur !== 0);
+  }
+  invalidateWaveformCache();
+  drawStackedTimelines();
+  updateTrackEditBar(track);
+  fileStatus.textContent = `${trackDisplayName(track)} オフセット: ${ms>0?"+":""}${ms}ms`;
+}
+
+function performTrackPlay(track){
+  const btn = document.getElementById(`tebPlay${cap(track)}`);
+  if(btn) btn.click();
+}
+
+function performTrackStop(track){
+  const btn = document.getElementById(`tebStop${cap(track)}`);
+  if(btn) btn.click();
+}
+
+function performTrackHandMode(track){
+  setEditClipMode(!editClipMode);
+  updateTrackEditBar(track);
+}
+
+function performTrackFxToggle(track){
+  const btn = document.getElementById(`fxToggle${cap(track)}`);
+  if(btn) btn.click();
+}
+
 function closeTrackEditPopup(){
   const popup = document.getElementById("trackEditPopup");
   const backdrop = document.getElementById("trackEditPopupBackdrop");
@@ -6717,11 +6815,15 @@ function refreshTrackEditPopupButtons(track){
   const hasClip = !!st.clipboard || !!clipboardBuffer;
   popup.querySelectorAll("[data-edit-action]").forEach(btn=>{
     const action = btn.dataset.editAction;
+    const fxMissing = action === "fx" && !document.getElementById(`fxToggle${cap(track)}`);
     btn.disabled =
-      (["split","restart"].includes(action) && !buf) ||
+      (["play","stop","setA","setB","split","restart","hand","fx"].includes(action) && !buf) ||
       (["cut","copy"].includes(action) && !hasSel) ||
       (action === "paste" && !(buf && hasClip)) ||
-      (action === "undo" && !st.undoStack.length);
+      (action === "undo" && !st.undoStack.length) ||
+      (action.startsWith("nudge") && (!buf || track === "main")) ||
+      fxMissing;
+    if(action === "hand") btn.classList.toggle("active", editClipMode);
   });
 }
 
@@ -6750,19 +6852,29 @@ function installTrackEditPopup(){
         const track = trackEditPopupTrack;
         if(!track) return;
         const action = btn.dataset.editAction;
-        if(action === "cut") performTrackCut(track);
+        let keepOpen = false;
+        if(action === "play") performTrackPlay(track);
+        else if(action === "stop") performTrackStop(track);
+        else if(action === "setA"){ setTrackPoint(track, "A"); keepOpen = true; }
+        else if(action === "setB"){ setTrackPoint(track, "B"); keepOpen = true; }
+        else if(action === "cut") performTrackCut(track);
         else if(action === "copy") performTrackCopy(track);
         else if(action === "paste") await performTrackPaste(track);
         else if(action === "split") performTrackSplit(track);
-        else if(action === "restart"){
-          const st = getTrackState(track);
-          st.playheadRatio = 0;
-          syncActiveSelectionFromTrack(track);
-          drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
-          updateTrackEditBar(track);
-          fileStatus.textContent = `${trackDisplayName(track)} を最初に戻しました`;
-        }else if(action === "undo"){
+        else if(action === "restart") performTrackRestart(track);
+        else if(action === "nudge-500"){ performTrackNudge(track, -500); keepOpen = true; }
+        else if(action === "nudge-100"){ performTrackNudge(track, -100); keepOpen = true; }
+        else if(action === "nudge100"){ performTrackNudge(track, 100); keepOpen = true; }
+        else if(action === "nudge500"){ performTrackNudge(track, 500); keepOpen = true; }
+        else if(action === "hand") performTrackHandMode(track);
+        else if(action === "fx") performTrackFxToggle(track);
+        else if(action === "undo"){
           trackUndo(track);
+        }
+        if(keepOpen){
+          updateTrackEditPopupInfo(track);
+          refreshTrackEditPopupButtons(track);
+          return;
         }
         closeTrackEditPopup();
       };
