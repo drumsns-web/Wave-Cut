@@ -610,6 +610,12 @@ audio{width:100%;margin:8px 0}
 .teb-btn.teb-paste:not(:disabled){ color:#4ade80; border-color:rgba(74,222,128,.3)  !important; }
 .teb-btn.teb-shift-l,.teb-btn.teb-shift-r{ color:#fbbf24; }
 .teb-btn.teb-undo:not(:disabled) { color:#a78bfa; border-color:rgba(167,139,250,.3) !important; }
+.teb-btn.teb-menu{
+  width:auto;
+  min-width:40px;
+  padding:0 8px !important;
+  font-size:11px;
+}
 .teb-btn.teb-menu:not(:disabled){
   color:#fbbf24;
   border-color:rgba(251,191,36,.35) !important;
@@ -1457,7 +1463,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayMain" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopMain" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut teb-menu" id="tebCutMain" data-track="main" title="編集メニュー" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutMain" data-track="main" title="編集メニュー" disabled>編集</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitMain" title="カーソル位置で分割">✂️</button>
@@ -1552,7 +1558,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayTake" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopTake" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut teb-menu" id="tebCutTake" data-track="take" title="編集メニュー" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutTake" data-track="take" title="編集メニュー" disabled>編集</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitTake" title="カーソル位置で分割">✂️</button>
@@ -1666,7 +1672,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-play" id="tebPlayChorus" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStopChorus" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut teb-menu" id="tebCutChorus" data-track="chorus" title="編集メニュー" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCutChorus" data-track="chorus" title="編集メニュー" disabled>編集</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplitChorus" title="カーソル位置で分割">✂️</button>
@@ -5206,7 +5212,7 @@ function createExtraTrackHTML(id, emoji, name){
           <button class="teb-btn teb-play" id="tebPlay${c1}" title="カーソル位置から再生" disabled>▶</button>
           <button class="teb-btn teb-stop-play" id="tebStop${c1}" title="停止">■</button>
           <span class="teb-sep"></span>
-          <button class="teb-btn teb-cut teb-menu" id="tebCut${c1}" data-track="${id}" title="編集メニュー" disabled>✂</button>
+          <button class="teb-btn teb-cut teb-menu" id="tebCut${c1}" data-track="${id}" title="編集メニュー" disabled>編集</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ貼り付け" disabled>⎙</button>
           <button class="teb-btn teb-split" id="tebSplit${c1}" title="カーソル位置で分割">✂️</button>
