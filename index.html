@@ -6260,6 +6260,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
   if(!canvasEl) return;
   let isDragging = false;    // 範囲選択ドラッグ
   let dragStartRatio = 0;
+  let pointerMovedForSelection = false;
   let isClipDragging = false; // クリップ移動ドラッグ
   let longPressTimer = null;
 
@@ -6342,15 +6343,14 @@ function setupTrackCanvasInteraction(canvasEl, track){
         startClipDrag(cl, r);
       }
     }, 500);
-    // 通常の範囲選択も準備
+    // 通常の範囲選択も準備。ただしタップだけでは既存のA/Bを消さない。
     isDragging = true;
     dragStartRatio = r;
+    pointerMovedForSelection = false;
     const st = getTrackState(track);
-    st.selStart = r;
-    st.selEnd   = r;
     st.playheadRatio = r;
     activeBufferType = track;
-    if(track === activeBufferType) playheadRatio = r;
+    playheadRatio = r;
     // 共通プレイヘッドも更新（このトラックのタップ位置を絶対秒に変換）
     const total = getTrackTimelineDuration();
     setGlobalPlayhead(total * r);
@@ -6385,6 +6385,8 @@ function setupTrackCanvasInteraction(canvasEl, track){
     e.preventDefault();
     const st = getTrackState(track);
     const r = getRatio(e);
+    pointerMovedForSelection = pointerMovedForSelection || Math.abs(r - dragStartRatio) > 0.005;
+    if(!pointerMovedForSelection) return;
     if(r < dragStartRatio){ st.selStart = r; st.selEnd = dragStartRatio; }
     else { st.selStart = dragStartRatio; st.selEnd = r; }
     drawMiniTrackWave(canvasEl, track, trackColor(track));
@@ -6408,15 +6410,18 @@ function setupTrackCanvasInteraction(canvasEl, track){
     if(!isDragging) return;
     isDragging = false;
     const st = getTrackState(track);
-    const moved = Math.abs(st.selEnd - st.selStart) > 0.005;
+    const moved = pointerMovedForSelection && st.selStart !== null && st.selEnd !== null && Math.abs(st.selEnd - st.selStart) > 0.005;
     if(!moved){
-      st.selStart = null; st.selEnd = null;
-      // タップ＝シーク：全トラックのプレイヘッドを揃える
+      // タップ＝シーク。既存のA/B地点は保持する。
       drawStackedTimelines();
     } else {
       drawMiniTrackWave(canvasEl, track, trackColor(track));
     }
     updateTrackEditBar(track);
+    if(trackEditPopupTrack === track){
+      updateTrackEditPopupInfo(track);
+      refreshTrackEditPopupButtons(track);
+    }
   }
 
   canvasEl.addEventListener("pointerdown", onDown, {passive:false});
