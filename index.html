@@ -2263,6 +2263,11 @@ function setEditClipMode(on){
   editClipMode = !!on;
   document.body.classList.toggle("clip-edit-mode", editClipMode);
   document.querySelectorAll(".teb-edit").forEach(b=>b.classList.toggle("active", editClipMode));
+  if(!editClipMode){
+    Object.keys(trackState).forEach(track=>{
+      if(trackState[track]) trackState[track].selectedClipId = null;
+    });
+  }
   // 全トラック再描画
   if(typeof drawStackedTimelines === "function") drawStackedTimelines();
   // ステータス
@@ -5264,7 +5269,7 @@ function addExtraTrack(opts){
   // 状態オブジェクト追加
   extraTracks.push({ id, name, emoji, offsetMs: 0, fxBaked: false, fxBackup: null });
   trackClips[id] = [];
-  trackState[id] = { playheadRatio: 0, selStart: null, selEnd: null, undoStack: [], clipboard: null };
+  trackState[id] = { playheadRatio: 0, selStart: null, selEnd: null, undoStack: [], clipboard: null, selectedClipId: null };
   // HTML挿入
   const stack = document.getElementById("trackStack");
   if(stack){
@@ -6193,9 +6198,9 @@ if(previewMixBtn){
 
 // 各トラックの独立した編集状態
 const trackState = {
-  main:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null },
-  take:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null },
-  chorus: { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null },
+  main:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
+  take:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
+  chorus: { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
 };
 const TRACK_MAX_UNDO = 10;
 
@@ -6259,6 +6264,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
   let dragStartRatio = 0;
   let pointerMovedForSelection = false;
   let isClipDragging = false; // クリップ移動ドラッグ
+  let pendingClipDrag = null;
   let longPressTimer = null;
 
   function getRatio(e){
@@ -6320,8 +6326,10 @@ function setupTrackCanvasInteraction(canvasEl, track){
   function startClipDrag(clip, r){
     isClipDragging = true;
     isDragging = false;
+    pendingClipDrag = null;
     const st = getTrackState(track);
     st.selStart = null; st.selEnd = null;
+    st.selectedClipId = clip.id;
     trackPushUndo(track, "クリップ移動");
     dragClipState = {
       track,
@@ -6344,9 +6352,23 @@ function setupTrackCanvasInteraction(canvasEl, track){
     if(editClipMode){
       const cl = clipAt(r);
       if(cl){
-        startClipDrag(cl, r);
+        const st = getTrackState(track);
+        st.selectedClipId = cl.id;
+        st.selStart = null;
+        st.selEnd = null;
+        activeBufferType = track;
+        pendingClipDrag = { clip: cl, ratio: r };
+        drawStackedTimelines();
+        updateTrackEditBar(track);
+        if(fileStatus) fileStatus.textContent = `✋ クリップを選択しました。ドラッグすると移動できます。`;
         return;
       }
+      const st = getTrackState(track);
+      st.selectedClipId = null;
+      drawStackedTimelines();
+      updateTrackEditBar(track);
+      if(fileStatus) fileStatus.textContent = "この位置にクリップがありません。";
+      return;
     }
     // 通常モード：長押しで編集モードに自動切替＋クリップつかむ
     longPressTimer = setTimeout(()=>{
@@ -6372,6 +6394,12 @@ function setupTrackCanvasInteraction(canvasEl, track){
   }
 
   function onMove(e){
+    if(editClipMode && pendingClipDrag && !isClipDragging){
+      const r0 = getRatio(e);
+      if(Math.abs(r0 - pendingClipDrag.ratio) > 0.006){
+        startClipDrag(pendingClipDrag.clip, pendingClipDrag.ratio);
+      }
+    }
     if(isClipDragging && dragClipState && dragClipState.track === track){
       e.preventDefault();
       const r = snapRatioToAB(getRatio(e));
@@ -6408,6 +6436,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
 
   function onUp(e){
     if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; }
+    pendingClipDrag = null;
     if(isClipDragging){
       isClipDragging = false;
       canvasEl.classList.remove("clip-dragging");
@@ -6519,17 +6548,26 @@ drawMiniTrackWave = function(canvasEl, track, labelColor){
       if(ce < viewStartSec || cs > viewStartSec + viewDur) continue;
       const x1 = Math.max(0, ((cs - viewStartSec) / viewDur) * w);
       const x2 = Math.min(w, ((ce - viewStartSec) / viewDur) * w);
+      const selected = st.selectedClipId === cl.id;
       // クリップ範囲の薄いハイライト
-      cctx.fillStyle = fillColor;
+      cctx.fillStyle = selected ? "rgba(255,51,85,.24)" : fillColor;
       cctx.fillRect(x1, 13*dpr, x2 - x1, h - 13*dpr);
       // クリップ境界（左右の縦線）
-      cctx.strokeStyle = borderColor;
-      cctx.lineWidth = 1.5 * dpr;
+      cctx.strokeStyle = selected ? "#ff3355" : borderColor;
+      cctx.lineWidth = (selected ? 3 : 1.5) * dpr;
       if(cs >= viewStartSec){
         cctx.beginPath(); cctx.moveTo(x1, 13*dpr); cctx.lineTo(x1, h); cctx.stroke();
       }
       if(ce <= viewStartSec + viewDur){
         cctx.beginPath(); cctx.moveTo(x2, 13*dpr); cctx.lineTo(x2, h); cctx.stroke();
+      }
+      if(selected){
+        cctx.strokeStyle = "#ff3355";
+        cctx.lineWidth = 2 * dpr;
+        cctx.strokeRect(x1 + dpr, 15*dpr, Math.max(1, x2 - x1 - 2*dpr), Math.max(1, h - 17*dpr));
+        cctx.fillStyle = "#ff3355";
+        cctx.font = `bold ${10*dpr}px ui-monospace,monospace`;
+        cctx.fillText("SELECT", x1 + 5*dpr, 18*dpr);
       }
     }
   }
@@ -6557,9 +6595,11 @@ drawMiniTrackWave = function(canvasEl, track, labelColor){
     cctx.textBaseline = "top";
     cctx.fillText(label, Math.min(w - 14*dpr, Math.max(2*dpr, x + 4*dpr)), pointY + 4*dpr);
   };
-  if(st.selStart !== null && st.selEnd !== null && st.selEnd > st.selStart){
-    const s1sec = offsetSec + buf.duration * st.selStart;
-    const s2sec = offsetSec + buf.duration * st.selEnd;
+  if(st.selStart !== null && st.selEnd !== null && Math.abs(st.selEnd - st.selStart) > 0.005){
+    const a = Math.min(st.selStart, st.selEnd);
+    const b = Math.max(st.selStart, st.selEnd);
+    const s1sec = offsetSec + buf.duration * a;
+    const s2sec = offsetSec + buf.duration * b;
     const x1 = Math.max(0, ((s1sec - viewStartSec) / viewDur) * w);
     const x2 = Math.min(w, ((s2sec - viewStartSec) / viewDur) * w);
     if(x2 > x1){
@@ -6673,17 +6713,16 @@ function setTrackPoint(track, point){
   const ratio = Math.max(0, Math.min(1, st.playheadRatio || 0));
 
   if(point === "A"){
+    if(st.selEnd !== null && ratio >= st.selEnd){
+      alert("A地点はB地点より前に設定してください。");
+      return;
+    }
     st.selStart = ratio;
-    if(st.selEnd !== null && st.selEnd <= st.selStart) st.selEnd = null;
     fileStatus.textContent = `${trackDisplayName(track)} のA地点を ${formatTimeMs(buf.duration * ratio)} に設定しました`;
   }else{
-    if(st.selStart === null){
-      st.selStart = ratio;
-      st.selEnd = null;
-      fileStatus.textContent = `${trackDisplayName(track)} のA地点を ${formatTimeMs(buf.duration * ratio)} に設定しました。B地点はAより後ろで設定してください`;
-    }else if(ratio <= st.selStart){
+    if(st.selStart !== null && ratio <= st.selStart){
       alert("B地点はA地点より後ろに設定してください。");
-      st.selEnd = null;
+      return;
     }else{
       st.selEnd = ratio;
       fileStatus.textContent = `${trackDisplayName(track)} のB地点を ${formatTimeMs(buf.duration * ratio)} に設定しました`;
