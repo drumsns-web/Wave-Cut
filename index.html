@@ -777,18 +777,21 @@ audio{width:100%;margin:8px 0}
 .track-edit-popup-backdrop.open{display:block;}
 .track-edit-popup{
   position:fixed;
+  top:50%;
   left:50%;
-  bottom:0;
-  transform:translateX(-50%);
-  width:min(520px,100%);
+  bottom:auto;
+  transform:translate(-50%,-50%);
+  width:min(520px,calc(100% - 24px));
+  max-height:calc(100dvh - 48px);
+  overflow:auto;
+  overscroll-behavior:contain;
   z-index:981;
   display:none;
-  padding:16px 16px 26px;
+  padding:16px;
   border:1px solid rgba(255,255,255,.14);
-  border-bottom:none;
-  border-radius:20px 20px 0 0;
+  border-radius:18px;
   background:linear-gradient(180deg,#1e293b,#0f172a);
-  box-shadow:0 -18px 60px rgba(0,0,0,.55);
+  box-shadow:0 18px 70px rgba(0,0,0,.62);
 }
 .track-edit-popup.open{display:block;}
 .track-edit-popup-header{
