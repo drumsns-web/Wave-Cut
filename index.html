@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
@@ -3026,7 +3026,6 @@ async function decodeFileToAudioBuffer(file){
       return captured;
     }catch(userTapError){
       console.warn("MOV user-tap media capture failed.", userTapError);
-      throw userTapError;
     }
   }
 
@@ -3053,6 +3052,28 @@ async function decodeFileToAudioBuffer(file){
   }
 
   // 4. 最終フォールバック：通常のブラウザ再生経由
+  if(shouldTryRemux(file)){
+    try{
+      const remuxed = await 形式変換MovToMp4WithFfmpeg(file);
+
+      try{
+        const decoded = await decodeBlobDirectly(remuxed);
+        decoded._wavecutLoadMethod = "mov-to-mp4-形式変換-direct";
+        decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
+        return decoded;
+      }catch(remuxDirectError){
+        console.warn("Remuxed MP4 direct decode failed.", remuxDirectError);
+      }
+
+      const captured = await extractAudioViaPlayableMedia(remuxed, mediaInfo);
+      captured._wavecutLoadMethod = "mov-to-mp4-形式変換-media-capture";
+      captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
+      return captured;
+    }catch(remuxError){
+      console.warn("MOV/MP4 remux fallback failed.", remuxError);
+    }
+  }
+
   const captured = await extractAudioViaPlayableMedia(file, mediaInfo);
   captured._wavecutLoadMethod = "media-capture-original";
   captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
