@@ -5606,12 +5606,28 @@ setEndBtn.onclick=()=>{
 
 cutBtn.onclick=()=>{
   if(!hasSelection()) return;
+  const buf = activeBuffer();
+  if(!buf) return;
+  const start = Math.min(selectedStart, selectedEnd);
+  const end   = Math.max(selectedStart, selectedEnd);
+  const startSec = buf.duration * start;
+  const endSec   = buf.duration * end;
+  const track = activeBufferType;
+  // trackState のアンドゥを使う（トラックキャンバス側と同じ方式）
+  if(typeof trackPushUndo === "function") trackPushUndo(track, "選択範囲カット");
   saveUndoState("選択範囲カット");
-  const start=Math.min(selectedStart,selectedEnd);
-  const end=Math.max(selectedStart,selectedEnd);
-  setActiveBuffer(cutAudioBuffer(activeBuffer(),start,end));
+  const clipped = cutTimeRangeFromClips(track, startSec, endSec);
+  if(clipped){ clipboardBuffer = clipped; }
+  if(track==="take"){ takeFxBaked=false; takeFxBackup=null; }
+  else if(track==="chorus"){ chorusFxBaked=false; chorusFxBackup=null; }
+  else { mainFxBaked=false; mainFxBackup=null; }
   selectedStart=null; selectedEnd=null;
+  playheadRatio = Math.min(1, Math.max(0, start));
+  invalidateWaveformCache();
   refreshPreview(); updateButtons();
+  const st = typeof getTrackState==="function" ? getTrackState(track) : null;
+  if(st){ st.selStart=null; st.selEnd=null; st.playheadRatio=playheadRatio; }
+  if(typeof drawStackedTimelines==="function") drawStackedTimelines();
 };
 
 trimBtn.onclick=()=>{
@@ -5808,17 +5824,30 @@ function clearFxBackupForActiveEdit(){
 cutToClipboardBtn.onclick=()=>{
   if(!hasSelection()) return;
   const buffer = activeBuffer();
-  const start=Math.min(selectedStart,selectedEnd);
-  const end=Math.max(selectedStart,selectedEnd);
+  const start  = Math.min(selectedStart, selectedEnd);
+  const end    = Math.max(selectedStart, selectedEnd);
+  const startSec = buffer.duration * start;
+  const endSec   = buffer.duration * end;
+  const track  = activeBufferType;
+  if(typeof trackPushUndo === "function") trackPushUndo(track, "切り取り");
   saveUndoState("切り取り");
-  clipboardBuffer = copyAudioRange(buffer,start,end);
-  clipboardSourceLabel = activeBufferType === "take" ? "追加音源から切り取り" : "メイン音源から切り取り";
-  setActiveBuffer(cutAudioBuffer(buffer,start,end));
+  const clipped = cutTimeRangeFromClips(track, startSec, endSec);
+  if(clipped){
+    clipboardBuffer = clipped;
+    clipboardSourceLabel = track==="take" ? "追加音源から切り取り" : "メイン音源から切り取り";
+  }
   clearFxBackupForActiveEdit();
+  if(track==="take"){ takeFxBaked=false; takeFxBackup=null; }
+  else if(track==="chorus"){ chorusFxBaked=false; chorusFxBackup=null; }
+  else { mainFxBaked=false; mainFxBackup=null; }
   selectedStart=null; selectedEnd=null;
   playheadRatio = Math.min(1, Math.max(0, start));
   centerViewportOnPlayhead();
+  invalidateWaveformCache();
   refreshPreview(); updateButtons();
+  const st = typeof getTrackState==="function" ? getTrackState(track) : null;
+  if(st){ st.selStart=null; st.selEnd=null; st.playheadRatio=playheadRatio; }
+  if(typeof drawStackedTimelines==="function") drawStackedTimelines();
 };
 
 copyToClipboardBtn.onclick=()=>{
