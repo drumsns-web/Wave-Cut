@@ -1134,12 +1134,6 @@ audio{width:100%;margin:8px 0}
   background:rgba(251,191,36,.12);
   border-color:rgba(251,191,36,.3);
 }
-/* mainトラックのquick-shiftは無効化 */
-[data-track="main"].teb-quick-shift{
-  opacity:.32; cursor:not-allowed;
-}
-[data-track="main"].teb-quick-label{ opacity:.32; }
-
 /* 録音ボタンが録音中は停止ボタンに変身 */
 .track-btn-rec.recording{
   background:linear-gradient(180deg,#fca5a5,#ef4444 60%,#b91c1c) !important;
@@ -1475,6 +1469,10 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-stop-play" id="tebStopMain" title="停止">■</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-menu" id="tebMenuMain" data-track="main" title="編集メニュー" disabled>編集</button>
+          <button class="teb-btn teb-edit" id="editClipMain" title="クリップ編集モード（つかんで動かす）">✋</button>
+          <button class="teb-btn teb-fx" id="fxToggleMain" title="エフェクト">FX</button>
+          <button class="teb-btn teb-undo" id="tebUndoMain" title="元に戻す" disabled>↩</button>
+          <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutMain"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteMain" title="カーソル位置へ貼り付け" disabled>⎙</button>
@@ -1490,10 +1488,6 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <span class="teb-quick-label" id="quickOffsetLabelMain" data-track="main">±0</span>
           <button class="teb-btn teb-quick-shift pos" data-track="main" data-ms="100"  title="+100ms">›</button>
           <button class="teb-btn teb-quick-shift pos" data-track="main" data-ms="500"  title="トラック全体を+500ms">⏩</button>
-          <span class="teb-sep"></span>
-          <button class="teb-btn teb-edit" id="editClipMain" title="クリップ編集モード（つかんで動かす）">✋</button>
-          <button class="teb-btn teb-fx" id="fxToggleMain" title="エフェクト">FX</button>
-          <button class="teb-btn teb-undo" id="tebUndoMain" title="元に戻す" disabled>↩</button>
         </div>
         <!-- FXパネル（トグル） -->
         <div class="track-fx-panel" id="fxPanelMain" style="display:none">
@@ -1571,6 +1565,10 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-stop-play" id="tebStopTake" title="停止">■</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-menu" id="tebMenuTake" data-track="take" title="編集メニュー" disabled>編集</button>
+          <button class="teb-btn teb-edit" id="editClipTake" title="クリップ編集モード（つかんで動かす）">✋</button>
+          <button class="teb-btn teb-fx" id="fxToggleTake" title="エフェクト">FX</button>
+          <button class="teb-btn teb-undo" id="tebUndoTake" title="元に戻す" disabled>↩</button>
+          <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutTake"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteTake" title="カーソル位置へ貼り付け" disabled>⎙</button>
@@ -1586,10 +1584,6 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <span class="teb-quick-label" id="quickOffsetLabelTake" data-track="take">±0</span>
           <button class="teb-btn teb-quick-shift pos" data-track="take" data-ms="100"  title="+100ms">›</button>
           <button class="teb-btn teb-quick-shift pos" data-track="take" data-ms="500"  title="トラック全体を+500ms">⏩</button>
-          <span class="teb-sep"></span>
-          <button class="teb-btn teb-edit" id="editClipTake" title="クリップ編集モード（つかんで動かす）">✋</button>
-          <button class="teb-btn teb-fx" id="fxToggleTake" title="エフェクト">FX</button>
-          <button class="teb-btn teb-undo" id="tebUndoTake" title="元に戻す" disabled>↩</button>
         </div>
         <!-- FXパネル（トグル） -->
         <div class="track-fx-panel" id="fxPanelTake" style="display:none">
@@ -1686,6 +1680,10 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-stop-play" id="tebStopChorus" title="停止">■</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-menu" id="tebMenuChorus" data-track="chorus" title="編集メニュー" disabled>編集</button>
+          <button class="teb-btn teb-edit" id="editClipChorus" title="クリップ編集モード（つかんで動かす）">✋</button>
+          <button class="teb-btn teb-fx" id="fxToggleChorus" title="エフェクト">FX</button>
+          <button class="teb-btn teb-undo" id="tebUndoChorus" title="元に戻す" disabled>↩</button>
+          <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutChorus"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPasteChorus" title="カーソル位置へ貼り付け" disabled>⎙</button>
@@ -1701,10 +1699,6 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <span class="teb-quick-label" id="quickOffsetLabelChorus" data-track="chorus">±0</span>
           <button class="teb-btn teb-quick-shift pos" data-track="chorus" data-ms="100"  title="+100ms">›</button>
           <button class="teb-btn teb-quick-shift pos" data-track="chorus" data-ms="500"  title="トラック全体を+500ms">⏩</button>
-          <span class="teb-sep"></span>
-          <button class="teb-btn teb-edit" id="editClipChorus" title="クリップ編集モード（つかんで動かす）">✋</button>
-          <button class="teb-btn teb-fx" id="fxToggleChorus" title="エフェクト">FX</button>
-          <button class="teb-btn teb-undo" id="tebUndoChorus" title="元に戻す" disabled>↩</button>
         </div>
         <!-- FXパネル（トグル） -->
         <div class="track-fx-panel" id="fxPanelChorus" style="display:none">
@@ -5235,6 +5229,8 @@ function createExtraTrackHTML(id, emoji, name){
           <button class="teb-btn teb-stop-play" id="tebStop${c1}" title="停止">■</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-menu" id="tebMenu${c1}" data-track="${id}" title="編集メニュー" disabled>編集</button>
+          <button class="teb-btn teb-edit" id="editClip${c1}" title="クリップ編集モード">✋</button>
+          <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCut${c1}"   title="選択をカット" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
           <button class="teb-btn teb-paste" id="tebPaste${c1}" title="カーソル位置へ貼り付け" disabled>⎙</button>
@@ -5250,8 +5246,6 @@ function createExtraTrackHTML(id, emoji, name){
           <span class="teb-quick-label" id="quickOffsetLabel${c1}" data-track="${id}">±0</span>
           <button class="teb-btn teb-quick-shift pos" data-track="${id}" data-ms="100"  title="+100ms">›</button>
           <button class="teb-btn teb-quick-shift pos" data-track="${id}" data-ms="500"  title="+500ms">⏩</button>
-          <span class="teb-sep"></span>
-          <button class="teb-btn teb-edit" id="editClip${c1}" title="クリップ編集モード">✋</button>
         </div>
       </div>
     </div>`;
@@ -6758,8 +6752,10 @@ function performTrackRestart(track){
 }
 
 function performTrackNudge(track, ms){
-  if(track === "main") return;
-  if(track === "take"){
+  if(track === "main"){
+    trackClips.main.forEach(cl=>{ cl.startSec = Math.max(0, cl.startSec + ms / 1000); });
+    rebuildTrackBuffer("main");
+  }else if(track === "take"){
     takeOffsetMs += ms;
     if(takeOffsetLabel) takeOffsetLabel.textContent = (takeOffsetMs>=0?"+":"")+takeOffsetMs+" ms";
   }else if(track === "chorus"){
@@ -6771,7 +6767,10 @@ function performTrackNudge(track, ms){
   const qlabel = document.getElementById("quickOffsetLabel" + cap(track));
   if(qlabel){
     let cur = 0;
-    if(track === "take") cur = takeOffsetMs;
+    if(track === "main"){
+      const clips = trackClips.main || [];
+      cur = clips.length ? Math.round(Math.min(...clips.map(cl=>cl.startSec)) * 1000) : 0;
+    }else if(track === "take") cur = takeOffsetMs;
     else if(track === "chorus") cur = chorusOffsetMs;
     else if(isExtraTrack(track)){ const t2 = getExtraTrack(track); cur = t2 ? t2.offsetMs : 0; }
     qlabel.textContent = (cur>=0?"+":"")+cur;
@@ -6780,7 +6779,8 @@ function performTrackNudge(track, ms){
   invalidateWaveformCache();
   drawStackedTimelines();
   updateTrackEditBar(track);
-  fileStatus.textContent = `${trackDisplayName(track)} オフセット: ${ms>0?"+":""}${ms}ms`;
+  updateButtons();
+  fileStatus.textContent = `${trackDisplayName(track)} を ${ms>0?"+":""}${ms}ms 微調整しました`;
 }
 
 function performTrackPlay(track){
@@ -7034,7 +7034,11 @@ function setupTrackEditBar(track){
     btn.onclick = ()=>{
       const ms = Number(btn.dataset.ms);
       if(!ms) return; // resetボタンには data-ms がない
-      if(track === "take"){
+      if(typeof performTrackNudge === "function"){
+        performTrackNudge(track, ms);
+        btn.classList.remove("flash"); void btn.offsetWidth; btn.classList.add("flash");
+        return;
+      } else if(track === "take"){
         takeOffsetMs += ms;
         if(takeOffsetLabel) takeOffsetLabel.textContent = (takeOffsetMs>=0?"+":"")+takeOffsetMs+" ms";
       } else if(track === "chorus"){
