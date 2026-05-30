@@ -771,8 +771,7 @@ audio{width:100%;margin:8px 0}
   inset:0;
   z-index:980;
   display:none;
-  background:rgba(2,6,23,.62);
-  backdrop-filter:blur(6px);
+  background:rgba(2,6,23,.18);
 }
 .track-edit-popup-backdrop.open{display:block;}
 .track-edit-popup{
@@ -1778,8 +1777,6 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
       <button type="button" class="track-edit-popup-close" id="trackEditPopupClose" aria-label="閉じる">×</button>
     </div>
     <div class="track-edit-popup-grid">
-      <button type="button" class="track-edit-action" data-edit-action="setA"><span class="icon">A</span><span>A地点を設定<small>現在位置を開始点にする</small></span></button>
-      <button type="button" class="track-edit-action" data-edit-action="setB"><span class="icon">B</span><span>B地点を設定<small>現在位置を終了点にする</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="cut"><span class="icon">✂</span><span>カット<small>A-B範囲を切り取る</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="split"><span class="icon">✂️</span><span>分割<small>カーソル位置で分ける</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="copy"><span class="icon">⎘</span><span>コピー<small>A-B範囲を保持</small></span></button>
@@ -6561,6 +6558,17 @@ function syncActiveSelectionFromTrack(track){
   selectedEnd = st.selEnd;
 }
 
+function updateTrackEditPopupInfo(track){
+  const buf = bufferForTrack(track);
+  const st = getTrackState(track);
+  const sub = document.getElementById("trackEditPopupSub");
+  if(!sub || !buf || !st) return;
+  const current = formatTimeMs(buf.duration * (st.playheadRatio || 0));
+  const a = st.selStart !== null ? formatTimeMs(buf.duration * st.selStart) : "--:--.--";
+  const b = st.selEnd !== null ? formatTimeMs(buf.duration * st.selEnd) : "--:--.--";
+  sub.textContent = `${trackDisplayName(track)} / 現在 ${current} / A ${a} / B ${b}`;
+}
+
 function trackDisplayName(track){
   const el = document.getElementById("trackName" + cap(track));
   if(el) return el.textContent.trim();
@@ -6576,6 +6584,7 @@ function setTrackPoint(track, point){
   const buf = bufferForTrack(track);
   if(!buf) return;
   const st = getTrackState(track);
+  activeBufferType = track;
   const ratio = Math.max(0, Math.min(1, st.playheadRatio || 0));
 
   if(point === "A"){
@@ -6596,9 +6605,14 @@ function setTrackPoint(track, point){
     }
   }
 
-  if(activeBufferType === track) syncActiveSelectionFromTrack(track);
+  syncActiveSelectionFromTrack(track);
   drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
+  if(typeof drawStackedTimelines === "function") drawStackedTimelines();
   updateTrackEditBar(track);
+  if(trackEditPopupTrack === track){
+    updateTrackEditPopupInfo(track);
+    refreshTrackEditPopupButtons(track);
+  }
   updateButtons();
 }
 
@@ -6704,7 +6718,7 @@ function refreshTrackEditPopupButtons(track){
   popup.querySelectorAll("[data-edit-action]").forEach(btn=>{
     const action = btn.dataset.editAction;
     btn.disabled =
-      (["setA","setB","split","restart"].includes(action) && !buf) ||
+      (["split","restart"].includes(action) && !buf) ||
       (["cut","copy"].includes(action) && !hasSel) ||
       (action === "paste" && !(buf && hasClip)) ||
       (action === "undo" && !st.undoStack.length);
@@ -6718,8 +6732,7 @@ function openTrackEditPopup(track){
   activeBufferType = track;
   const popup = document.getElementById("trackEditPopup");
   const backdrop = document.getElementById("trackEditPopupBackdrop");
-  const sub = document.getElementById("trackEditPopupSub");
-  if(sub) sub.textContent = `${trackDisplayName(track)} / 現在位置 ${formatTimeMs(buf.duration * (getTrackState(track).playheadRatio || 0))}`;
+  updateTrackEditPopupInfo(track);
   refreshTrackEditPopupButtons(track);
   if(backdrop) backdrop.classList.add("open");
   if(popup) popup.classList.add("open");
@@ -6737,9 +6750,7 @@ function installTrackEditPopup(){
         const track = trackEditPopupTrack;
         if(!track) return;
         const action = btn.dataset.editAction;
-        if(action === "setA") setTrackPoint(track, "A");
-        else if(action === "setB") setTrackPoint(track, "B");
-        else if(action === "cut") performTrackCut(track);
+        if(action === "cut") performTrackCut(track);
         else if(action === "copy") performTrackCopy(track);
         else if(action === "paste") await performTrackPaste(track);
         else if(action === "split") performTrackSplit(track);
