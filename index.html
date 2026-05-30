@@ -777,12 +777,12 @@ audio{width:100%;margin:8px 0}
 .track-edit-popup-backdrop.open{display:block;}
 .track-edit-popup{
   position:fixed;
-  top:50%;
+  top:max(14px, env(safe-area-inset-top));
   left:50%;
   bottom:auto;
-  transform:translate(-50%,-50%);
+  transform:translateX(-50%);
   width:min(520px,calc(100% - 24px));
-  max-height:calc(100dvh - 48px);
+  max-height:calc(100dvh - 28px);
   overflow:auto;
   overscroll-behavior:contain;
   z-index:981;
@@ -860,7 +860,12 @@ audio{width:100%;margin:8px 0}
   font-weight:700;
 }
 @media (max-width:520px){
-  .track-edit-popup{padding:14px 12px 22px;}
+  .track-edit-popup{
+    top:max(10px, env(safe-area-inset-top));
+    width:calc(100% - 16px);
+    max-height:calc(100dvh - 20px);
+    padding:14px 12px 18px;
+  }
   .track-edit-popup-grid{grid-template-columns:1fr;}
   .track-edit-action{min-height:50px !important;}
 }
