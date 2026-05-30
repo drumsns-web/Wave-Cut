@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>WaveCut 3 Track Mobile</title>
+<title>WaveCut Vocal Sync v10</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
-<meta name="apple-mobile-web-app-title" content="WaveCut 3Track">
-<meta name="application-name" content="WaveCut 3Track">
+<meta name="apple-mobile-web-app-title" content="WaveCut Vocal Sync">
+<meta name="application-name" content="WaveCut Vocal Sync">
 <meta name="theme-color" content="#0b1020">
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.15/dist/umd/ffmpeg.js"></script>
@@ -1064,17 +1064,85 @@ body.clip-edit-mode::before{
   border-bottom-color:rgba(255,255,255,.35);
   color:#facc15 !important;
 }
-.editable-track-name.editing{
-  background:rgba(250,204,21,.18);
-  color:#facc15 !important;
-  outline:1px solid rgba(250,204,21,.55);
-  cursor:text;
-  border-bottom-color:transparent;
-}
 .editable-track-name input{
   background:transparent;border:none;outline:none;
   font-size:inherit;font-weight:inherit;font-family:inherit;color:inherit;
   width:80px;padding:0;margin:0;
+}
+
+/* ─── トラック名選択ポップアップ ─── */
+#trackNameOverlay{
+  display:none;position:fixed;inset:0;z-index:1100;
+  background:rgba(0,0,0,.55);backdrop-filter:blur(3px);
+}
+#trackNamePopup{
+  display:none;position:fixed;bottom:0;left:50%;
+  transform:translateX(-50%) translateY(100%);
+  width:min(480px,100%);z-index:1101;
+  background:linear-gradient(180deg,#1e2940,#111827);
+  border:1px solid rgba(255,255,255,.13);border-bottom:none;
+  border-radius:22px 22px 0 0;padding:20px 20px 36px;
+  box-shadow:0 -14px 50px rgba(0,0,0,.65);
+  transition:transform .26s cubic-bezier(.22,1,.36,1);
+}
+#trackNamePopup.open{ transform:translateX(-50%) translateY(0); }
+.tnp-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;
+}
+.tnp-title{ font-size:15px;font-weight:800;color:#f8fafc; }
+.tnp-close{
+  width:32px !important;height:32px !important;padding:0 !important;margin:0 !important;
+  border-radius:50% !important;font-size:14px !important;
+  background:rgba(255,255,255,.08) !important;
+  border:1px solid rgba(255,255,255,.14) !important;color:#94a3b8 !important;
+}
+.tnp-presets{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:7px;
+  margin-bottom:14px;
+}
+.tnp-preset-btn{
+  padding:10px 6px !important;margin:0 !important;min-height:0 !important;
+  font-size:12px !important;font-weight:700 !important;
+  border-radius:11px !important;width:100% !important;
+  background:rgba(255,255,255,.07) !important;
+  border:1px solid rgba(255,255,255,.16) !important;
+  color:#cbd5e1 !important;cursor:pointer;
+  transition:background .1s,color .1s,border-color .1s;
+  -webkit-tap-highlight-color:transparent;
+}
+.tnp-preset-btn:active,.tnp-preset-btn:hover{
+  background:rgba(250,204,21,.22) !important;
+  color:#facc15 !important;
+  border-color:rgba(250,204,21,.5) !important;
+}
+.tnp-preset-btn.selected{
+  background:linear-gradient(180deg,rgba(250,204,21,.35),rgba(250,204,21,.18)) !important;
+  color:#facc15 !important;border-color:rgba(250,204,21,.6) !important;
+  box-shadow:0 0 10px rgba(250,204,21,.3);
+}
+.tnp-custom-row{
+  display:flex;gap:8px;align-items:center;margin-top:4px;
+}
+.tnp-custom-input{
+  flex:1;padding:10px 12px;border-radius:11px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.14);
+  color:#f8fafc;font-size:13px;font-weight:700;outline:none;
+  transition:border-color .15s;
+}
+.tnp-custom-input:focus{
+  border-color:rgba(250,204,21,.55);
+  background:rgba(250,204,21,.08);
+}
+.tnp-apply-btn{
+  padding:10px 16px !important;margin:0 !important;min-height:0 !important;
+  font-size:13px !important;font-weight:800 !important;
+  border-radius:11px !important;width:auto !important;
+  background:linear-gradient(180deg,#fde047,#eab308) !important;
+  border:1px solid rgba(253,224,71,.4) !important;
+  color:#000 !important;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
 }
 
 /* ─── トラック追加UI ─── */
@@ -1154,31 +1222,12 @@ body.clip-edit-mode::before{
 
 button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; color:#fff !important; border-color:rgba(216,180,254,.5) !important; }
 </style>
-
-<style id="wavecut-2track-recovery-patch">
-  /* Stable 3-track mode: keep exactly 3 tracks and hide add-track UI. */
-  .add-track-row, #addTrackBtn, #trackCountInfo { display:none !important; }
-  #laneChorus { display:grid !important; }
-  @media(max-width:560px){
-    header{padding:14px 10px 8px;}
-    .logo{font-size:24px;}
-    main{padding:8px;}
-    .card{border-radius:16px;padding:10px;margin:8px 0;}
-    .track-lane{grid-template-columns:78px 1fr !important;}
-    .track-wave-wrap{height:86px !important;}
-    .track-lane-side{padding:4px;gap:3px;}
-    .track-btn-load,.track-btn-rec,.track-btn-stop-rec{width:32px !important;height:32px !important;}
-    .teb-btn{width:27px !important;height:27px !important;}
-    .track-edit-bar{padding:5px 6px;}
-    .bottom-transport, .sticky-transport{position:sticky;bottom:0;z-index:50;}
-  }
-</style>
 </head>
 <body>
 
 <header>
-  <div class="logo">Wave<span>Cut</span> 3Track</div>
-  <div class="sub">スマホ重視：3トラック音源編集・録音・MOV取り込み・MIX保存</div>
+  <div class="logo">Wave<span>Cut</span> Vocal Sync</div>
+  <div class="sub">カラオケ音源を読み込む・歌声を録る・波形でズレ補正・MIX保存</div>
 </header>
 
 <main>
@@ -1480,7 +1529,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
         </div>
         <div class="track-vol-row">
           <button class="vol-btn" id="volBtnChorus" data-track="chorus">🔊<span id="trackVolumeChorusLabel">100</span></button>
-          <label class="track-select-label"><input id="trackSelectChorus" type="checkbox"> MIX</label>
+          <label class="track-select-label"><input id="trackSelectChorus" type="checkbox" checked> MIX</label>
           <input id="trackVolumeChorus" type="hidden" value="100">
         </div>
         <div class="track-sm-row">
@@ -1733,6 +1782,20 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
   <div class="pan-marks"><span>L 左</span><span>中央</span><span>右 R</span></div>
   <button class="pan-center-btn" id="panCenterBtn">中央に戻す</button>
 </div>
+<!-- トラック名選択ポップアップ -->
+<div id="trackNameOverlay"></div>
+<div id="trackNamePopup">
+  <div class="tnp-header">
+    <span class="tnp-title">✏️ トラック名を選択</span>
+    <button class="tnp-close" id="trackNamePopupClose">✕</button>
+  </div>
+  <div class="tnp-presets" id="trackNamePresets"></div>
+  <div class="tnp-custom-row">
+    <input class="tnp-custom-input" id="trackNameCustomInput" type="text" maxlength="14" placeholder="カスタム入力…" />
+    <button class="tnp-apply-btn" id="trackNameApplyBtn">決定</button>
+  </div>
+</div>
+
 <!-- JS互換ダミー -->
 <button id="selectMainBtn"  style="display:none"></button>
 <button id="selectTakeBtn"  style="display:none"></button>
@@ -2025,15 +2088,12 @@ function setGlobalPlayhead(sec){
       if(st) st.playheadRatio = Math.max(0, Math.min(1, inBuf / buf.duration));
     });
   }
-  // ── Wave Edit のグローバル playheadRatio を同期 ──────────────
-  // アクティブバッファ上の位置（秒）→ Wave Edit の比率へ変換
+  // Wave Edit のグローバル playheadRatio を同期
   const activeBuf = (typeof activeBuffer === "function") ? activeBuffer() : null;
   if(activeBuf && activeBuf.duration > 0){
     const activeOff = (typeof offsetForTrack === "function") ? offsetForTrack(activeBufferType) : 0;
-    const inActiveBuf = globalPlayheadSec - activeOff;
-    const newRatio = Math.max(0, Math.min(1, inActiveBuf / activeBuf.duration));
+    const newRatio = Math.max(0, Math.min(1, (globalPlayheadSec - activeOff) / activeBuf.duration));
     playheadRatio = newRatio;
-    // audio要素もシーク
     if(typeof audioEl !== "undefined" && audioEl && audioEl.duration && isFinite(audioEl.duration)){
       audioEl.currentTime = audioEl.duration * newRatio;
     }
@@ -4527,26 +4587,23 @@ function seekToRatio(ratio){
   }
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
-  // ── トラックキャンバス側のプレイヘッドも同期 ─────────────────
+  // トラックキャンバス側のプレイヘッドも同期
   _syncTrackStateFromWaveEdit();
 }
 
 function _syncTrackStateFromWaveEdit(){
   const activeBuf = activeBuffer();
   if(!activeBuf || !activeBuf.duration) return;
-  // Wave Edit のカーソル位置を絶対秒に変換（アクティブトラックのオフセット込み）
   const activeOff = (typeof offsetForTrack === "function") ? offsetForTrack(activeBufferType) : 0;
   const curSec = activeBuf.duration * playheadRatio + activeOff;
-  // 全トラックの trackState に反映
   const allTracks = ['main','take','chorus'];
   if(typeof extraTracks !== "undefined") extraTracks.forEach(t => allTracks.push(t.id));
   allTracks.forEach(tr => {
     const buf = bufferForTrack(tr);
     if(!buf) return;
     const off = (typeof offsetForTrack === "function") ? offsetForTrack(tr) : 0;
-    const inBuf = curSec - off;
     const st = (typeof getTrackState === "function") ? getTrackState(tr) : null;
-    if(st) st.playheadRatio = Math.max(0, Math.min(1, inBuf / buf.duration));
+    if(st) st.playheadRatio = Math.max(0, Math.min(1, (curSec - off) / buf.duration));
   });
   if(typeof drawStackedTimelines === "function") drawStackedTimelines();
 }
@@ -6944,7 +7001,6 @@ function nudgePlayhead(seconds){
 
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
-  // trackState sync is handled inside seekToRatio → _syncTrackStateFromWaveEdit
 }
 
 document.querySelectorAll("[data-nudge]").forEach(btn=>{
@@ -7472,81 +7528,134 @@ function switchActiveBufferTo(track){
 
 
 // ════════════════════════════════════════════════════════════════
-// ── トラック名の編集 ───────────────────────────────────────────
+// ── トラック名の編集（プリセット選択＋カスタム入力ポップアップ） ─
 // ════════════════════════════════════════════════════════════════
 (function(){
   const STORAGE_KEY = "wavecut_track_names_v1";
 
+  const PRESETS = [
+    { emoji:"🎵", name:"トラック1" },
+    { emoji:"🥁", name:"トラック2" },
+    { emoji:"🔉", name:"トラック3" },
+    { emoji:"🎤", name:"ヴォーカル" },
+    { emoji:"🎶", name:"コーラス" },
+    { emoji:"🎹", name:"カラオケ" },
+    { emoji:"🎸", name:"音源" },
+  ];
+
   function loadNames(){
-    try{
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    }catch(e){ return {}; }
+    try{ const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : {}; }
+    catch(e){ return {}; }
   }
   function saveNames(map){
     try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(map)); }catch(e){}
   }
-  function renderName(el, emoji, name){
-    el.textContent = emoji + " " + name;
+
+  const overlay   = document.getElementById("trackNameOverlay");
+  const popup     = document.getElementById("trackNamePopup");
+  const closeBtn  = document.getElementById("trackNamePopupClose");
+  const presetsEl = document.getElementById("trackNamePresets");
+  const customIn  = document.getElementById("trackNameCustomInput");
+  const applyBtn  = document.getElementById("trackNameApplyBtn");
+
+  let currentTrack = null;
+  let currentEl    = null;
+  let currentEmoji = "🎵";
+
+  function buildPresets(currentName){
+    presetsEl.innerHTML = "";
+    PRESETS.forEach(p => {
+      const btn = document.createElement("button");
+      btn.className = "tnp-preset-btn";
+      btn.textContent = p.emoji + " " + p.name;
+      if(p.name === currentName) btn.classList.add("selected");
+      btn.addEventListener("click", ()=>{
+        customIn.value = p.name;
+        currentEmoji   = p.emoji;
+        presetsEl.querySelectorAll(".tnp-preset-btn").forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+      });
+      presetsEl.appendChild(btn);
+    });
   }
+
+  function openPopup(el){
+    const track   = el.dataset.track;
+    const emoji   = el.dataset.emoji  || "🎵";
+    const defName = el.dataset.default || "トラック";
+    const names   = loadNames();
+    const curName = names[track] || defName;
+
+    currentTrack = track;
+    currentEl    = el;
+    currentEmoji = emoji;
+
+    buildPresets(curName);
+    customIn.value = curName;
+
+    overlay.style.display = "block";
+    popup.style.display   = "block";
+    requestAnimationFrame(()=> requestAnimationFrame(()=>{
+      popup.classList.add("open");
+    }));
+
+    customIn.oninput = ()=>{
+      presetsEl.querySelectorAll(".tnp-preset-btn").forEach(b => b.classList.remove("selected"));
+    };
+  }
+
+  function closePopup(){
+    popup.classList.remove("open");
+    setTimeout(()=>{
+      popup.style.display   = "none";
+      overlay.style.display = "none";
+      currentTrack = null;
+      currentEl    = null;
+    }, 260);
+  }
+
+  function applyName(){
+    if(!currentTrack || !currentEl) return;
+    let name = (customIn.value || "").trim();
+    const defName = currentEl.dataset.default || "トラック";
+    if(!name) name = defName;
+    name = name.slice(0, 14);
+    const emoji = currentEmoji;
+
+    const names = loadNames();
+    if(name === defName){ delete names[currentTrack]; }
+    else { names[currentTrack] = name; }
+    saveNames(names);
+
+    currentEl.dataset.emoji = emoji;
+    currentEl.textContent   = emoji + " " + name;
+
+    if(typeof rebuildWaveTrackSelect === "function") rebuildWaveTrackSelect();
+    if(fileStatus) fileStatus.textContent = `トラック名を「${emoji} ${name}」に変更しました`;
+    closePopup();
+  }
+
+  if(closeBtn) closeBtn.onclick = closePopup;
+  if(overlay)  overlay.onclick  = closePopup;
+  if(applyBtn) applyBtn.onclick = applyName;
+  if(customIn) customIn.addEventListener("keydown", e=>{
+    if(e.key === "Enter"){ e.preventDefault(); applyName(); }
+    else if(e.key === "Escape"){ e.preventDefault(); closePopup(); }
+  });
 
   function setupEditable(el){
     const track   = el.dataset.track;
-    const emoji   = el.dataset.emoji;
-    const defName = el.dataset.default;
-    // 初期値復元
-    const names = loadNames();
+    const emoji   = el.dataset.emoji  || "🎵";
+    const defName = el.dataset.default || "トラック";
+    const names   = loadNames();
     const curName = names[track] || defName;
-    renderName(el, emoji, curName);
-
-    // ダブルタップ・タップでインライン編集モード
-    el.addEventListener("click", (e)=>{
-      e.stopPropagation();
-      if(el.classList.contains("editing")) return;
-      startEdit(el, emoji, defName, track);
-    });
-  }
-
-  function startEdit(el, emoji, defName, track){
-    const names = loadNames();
-    const current = names[track] || defName;
-    el.classList.add("editing");
-    el.innerHTML = emoji + " <input type='text' maxlength='14' />";
-    const input = el.querySelector("input");
-    input.value = current;
-    input.focus();
-    input.select();
-
-    function commit(){
-      let v = (input.value || "").trim();
-      if(!v) v = defName; // 空ならデフォルトに戻す
-      v = v.slice(0, 14); // 最大14文字
-      const names2 = loadNames();
-      if(v === defName){
-        delete names2[track];
-      } else {
-        names2[track] = v;
-      }
-      saveNames(names2);
-      el.classList.remove("editing");
-      renderName(el, emoji, v);
-      if(fileStatus) fileStatus.textContent = `トラック名を「${v}」に変更しました`;
-    }
-    function cancel(){
-      el.classList.remove("editing");
-      renderName(el, emoji, current);
-    }
-    input.addEventListener("keydown", (e)=>{
-      if(e.key === "Enter"){ e.preventDefault(); commit(); }
-      else if(e.key === "Escape"){ e.preventDefault(); cancel(); }
-    });
-    input.addEventListener("blur", commit);
+    el.textContent = emoji + " " + curName;
+    el.addEventListener("click", e => { e.stopPropagation(); openPopup(el); });
   }
 
   function init(){
     document.querySelectorAll(".editable-track-name").forEach(setupEditable);
   }
-  // 動的追加トラック用に公開
   window._setupEditableTrackName = setupEditable;
   if(document.readyState === "loading"){
     document.addEventListener("DOMContentLoaded", init);
@@ -7735,408 +7844,5 @@ if(document.readyState === "loading"){
 })();
 
 </script>
-
-
-<!-- WaveCut stable 3-track / mic gain / file loading patch 2026-05-29 -->
-<style id="wavecut-3track-stability-patch">
-  #laneChorus{display:grid !important;}
-  .add-track-row,#addTrackBtn,#trackCountInfo{display:none !important;}
-  .track-stack-card .section-title::after{
-    content:"3トラック固定";
-    font-size:11px;
-    color:#35e0a1;
-    background:rgba(53,224,161,.12);
-    border:1px solid rgba(53,224,161,.35);
-    border-radius:999px;
-    padding:4px 8px;
-    margin-left:6px;
-  }
-</style>
-<script id="wavecut-3track-stability-patch-script">
-(function(){
-  'use strict';
-
-  const FIXED_TRACKS = ['main','take','chorus'];
-  let wavecutRawMicStream = null;
-  let wavecutLoadingBusy = false;
-
-  function liveTracks(stream){
-    return !!(stream && stream.getAudioTracks && stream.getAudioTracks().some(t => t.readyState === 'live'));
-  }
-
-  function stopStream(stream){
-    if(!stream || !stream.getTracks) return;
-    try{ stream.getTracks().forEach(t => { try{ t.stop(); }catch(e){} }); }catch(e){}
-  }
-
-  function supportedRecorderOptions(){
-    const candidates = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/aac'
-    ];
-    for(const mimeType of candidates){
-      try{
-        if(window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mimeType)){
-          return { mimeType };
-        }
-      }catch(e){}
-    }
-    return undefined;
-  }
-
-  function refresh3TrackView(){
-    document.title = 'WaveCut 3 Track Mobile';
-    const appName = document.querySelector('meta[name="application-name"]');
-    const appleName = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    if(appName) appName.setAttribute('content','WaveCut 3Track');
-    if(appleName) appleName.setAttribute('content','WaveCut 3Track');
-    const logo = document.querySelector('.logo');
-    if(logo) logo.innerHTML = 'Wave<span>Cut</span> 3Track';
-    const sub = document.querySelector('header .sub');
-    if(sub) sub.textContent = 'スマホ重視：3トラック音源編集・録音・MOV取り込み・MIX保存';
-    const laneChorusEl = document.getElementById('laneChorus');
-    if(laneChorusEl) laneChorusEl.style.display = 'grid';
-    const addRow = document.querySelector('.add-track-row');
-    if(addRow) addRow.style.display = 'none';
-    const addBtn = document.getElementById('addTrackBtn');
-    if(addBtn){ addBtn.disabled = true; addBtn.style.display = 'none'; }
-    const countInfo = document.getElementById('trackCountInfo');
-    if(countInfo){ countInfo.textContent = '3/3 tracks'; countInfo.style.display = 'none'; }
-  }
-
-  window.addEventListener('load', refresh3TrackView);
-  refresh3TrackView();
-
-  try{ localStorage.removeItem(EXTRA_STORAGE_KEY); }catch(e){}
-
-  function removeExtraTrackLanes(){
-    document.querySelectorAll('.track-lane[data-track^="extra_"]').forEach(el => el.remove());
-    try{ if(Array.isArray(extraTracks)) extraTracks.splice(0, extraTracks.length); }catch(e){}
-  }
-
-  addExtraTrack = function(){
-    removeExtraTrackLanes();
-    refresh3TrackView();
-    if(fileStatus) fileStatus.textContent = 'この版は3トラック固定仕様です。';
-    return null;
-  };
-
-  updateTrackCountInfo = function(){
-    removeExtraTrackLanes();
-    const info = document.getElementById('trackCountInfo');
-    if(info){ info.textContent = '3/3 tracks'; info.style.display = 'none'; }
-    const btn = document.getElementById('addTrackBtn');
-    if(btn){ btn.disabled = true; btn.style.display = 'none'; }
-  };
-
-  stopCurrentMicStream = function(){
-    stopStream(wavecutRawMicStream);
-    stopStream(currentStream);
-    wavecutRawMicStream = null;
-    currentStream = null;
-    try{ if(micRawSource) micRawSource.disconnect(); }catch(e){}
-    try{ if(micGainNode) micGainNode.disconnect(); }catch(e){}
-    try{ if(micProcessedDestination) micProcessedDestination.disconnect && micProcessedDestination.disconnect(); }catch(e){}
-    micRawSource = null;
-    micGainNode = null;
-    micProcessedDestination = null;
-    micPeakHold = 0;
-    if(micMeterPeak) micMeterPeak.classList.remove('show','clip');
-    if(micClipWarn) micClipWarn.classList.remove('show');
-    stopMicLevelMeter();
-    updateMicStatus(false, 'マイク：OFF（録音時に自動でONになります）');
-  };
-
-  ensureMicStream = async function(){
-    ensureAudioContext();
-    if(audioContext && audioContext.state === 'suspended'){
-      try{ await audioContext.resume(); }catch(e){}
-    }
-
-    if(liveTracks(wavecutRawMicStream) && liveTracks(currentStream) && micGainNode && micProcessedDestination){
-      micGainNode.gain.value = getMicGainLinear();
-      updateMicStatus(true, 'マイク：ON / ゲイン適用中');
-      return currentStream;
-    }
-
-    stopCurrentMicStream();
-
-    const channelCount = channelSelect ? Number(channelSelect.value || 1) : 1;
-    const deviceId = micSelect ? micSelect.value : '';
-    const constraints = {
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        channelCount: { ideal: channelCount },
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false
-      }
-    };
-
-    updateMicStatus(false, 'マイクを起動中...');
-    wavecutRawMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-
-    try{
-      micRawSource = audioContext.createMediaStreamSource(wavecutRawMicStream);
-      micGainNode = audioContext.createGain();
-      micGainNode.gain.value = getMicGainLinear();
-      micProcessedDestination = audioContext.createMediaStreamDestination();
-      micRawSource.connect(micGainNode);
-      micGainNode.connect(micProcessedDestination);
-      currentStream = micProcessedDestination.stream;
-    }catch(e){
-      console.warn('mic gain chain failed; using raw stream', e);
-      micRawSource = null;
-      micGainNode = null;
-      micProcessedDestination = null;
-      currentStream = wavecutRawMicStream;
-    }
-
-    updateMicStatus(true, micGainNode ? 'マイク：ON / ゲイン適用中' : 'マイク：ON / ゲイン非対応');
-    startMicLevelMeter(micGainNode ? micGainNode : currentStream);
-    await loadMics(false).catch(()=>{});
-    return currentStream;
-  };
-
-  startTrackRecording = async function(track){
-    ensureAudioContext();
-    recordedChunks = [];
-    selectedStart = null;
-    selectedEnd = null;
-    playheadRatio = 0;
-    if(recordTarget) recordTarget.value = track;
-
-    let recordingStream;
-    try{
-      recordingStream = await ensureMicStream();
-    }catch(e){
-      alert('マイクをONにできませんでした: ' + e.message);
-      stopCurrentMicStream();
-      return;
-    }
-
-    if(!liveTracks(recordingStream)){
-      alert('録音用のマイクストリームを取得できませんでした。マイク権限と接続を確認してください。');
-      stopCurrentMicStream();
-      return;
-    }
-
-    const options = supportedRecorderOptions();
-    try{
-      mediaRecorder = options ? new MediaRecorder(recordingStream, options) : new MediaRecorder(recordingStream);
-    }catch(e){
-      alert('このブラウザでは録音を開始できませんでした: ' + e.message);
-      stopCurrentMicStream();
-      return;
-    }
-
-    mediaRecorder.ondataavailable = e => { if(e.data && e.data.size > 0) recordedChunks.push(e.data); };
-    mediaRecorder.onerror = e => {
-      console.error('MediaRecorder error', e);
-      if(fileStatus) fileStatus.textContent = '録音エラーが発生しました。';
-    };
-    mediaRecorder.onstop = async()=>{
-      try{
-        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-        if(!blob.size) throw new Error('録音データが空です');
-        const arrayBuffer = await blob.arrayBuffer();
-        const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
-
-        if(track === 'take'){
-          takeInBuffer('take', decoded, '録音');
-          takeFxBaked = false; takeFxBackup = null;
-          activeBufferType = 'take';
-          fileStatus.textContent = `トラック2 録音完了 / ${formatTime(decoded.duration)}`;
-        }else if(track === 'chorus'){
-          takeInBuffer('chorus', decoded, '録音');
-          chorusFxBaked = false; chorusFxBackup = null;
-          activeBufferType = 'chorus';
-          fileStatus.textContent = `トラック3 録音完了 / ${formatTime(decoded.duration)}`;
-        }else{
-          takeInBuffer('main', decoded, '録音');
-          mainFxBaked = false; mainFxBackup = null;
-          activeBufferType = 'main';
-          fileStatus.textContent = `トラック1 録音完了 / ${formatTime(decoded.duration)}`;
-        }
-        invalidateWaveformCache(); playheadRatio = 0;
-        saveInitialEditState(track === 'take' ? 'トラック2録音直後' : track === 'chorus' ? 'トラック3録音直後' : 'トラック1録音直後');
-        resetFx(); refreshPreview(); updateButtons();
-      }catch(err){
-        alert('録音データの読み込みに失敗しました: ' + err.message);
-      }finally{
-        endLiveRecordingWave();
-        stopCurrentMicStream();
-        setTrackRecordingUI(track, false);
-      }
-    };
-
-    try{ mediaRecorder.start(250); }catch(e){ mediaRecorder.start(); }
-    beginLiveRecordingWave(track);
-    setTrackRecordingUI(track, true);
-
-    if((track === 'take' || track === 'chorus') && mainBuffer && karaokeMonitorMode && karaokeMonitorMode.value !== 'off'){
-      try{
-        await startKaraokePlaybackDuringRecord();
-        fileStatus.innerHTML = 'カラオケを再生しながら録音中（イヤホン推奨）';
-      }catch(e){
-        fileStatus.innerHTML = '録音中（カラオケ自動再生に失敗しました）';
-      }
-    }else{
-      fileStatus.innerHTML = '録音中...';
-    }
-    updateMicStatus(true, 'マイク：ON / 録音中 / ゲイン適用中');
-  };
-
-  toggleTrackRecording = function(track){
-    if(mediaRecorder && mediaRecorder.state === 'recording'){
-      stopTrackRecording(track);
-    }else{
-      startTrackRecording(track);
-    }
-  };
-
-  function isAudioFile(file){
-    const type = (file.type || '').toLowerCase();
-    const name = (file.name || '').toLowerCase();
-    return type.startsWith('audio/') || /\.(mp3|wav|m4a|aac|flac|ogg|webm)$/i.test(name);
-  }
-
-  const originalDecodeFileToAudioBuffer = decodeFileToAudioBuffer;
-  decodeFileToAudioBuffer = async function(file){
-    ensureAudioContext();
-    if(audioContext && audioContext.state === 'suspended'){
-      try{ await audioContext.resume(); }catch(e){}
-    }
-
-    let mediaInfo = null;
-    try{ mediaInfo = await probeMediaFile(file); }catch(e){ console.warn('Media probe failed', e); }
-    const fileName = file.name || 'audio/video file';
-    const lower = fileName.toLowerCase();
-    const isMov = isProbablyMovFile(file);
-    const isVideo = (file.type || '').toLowerCase().startsWith('video/') || /\.(mov|mp4|m4v|avi|mkv)$/i.test(lower);
-
-    if(fileStatus){
-      fileStatus.classList.add('extracting');
-      fileStatus.innerHTML = `読み込み準備中...<br>${fileName}`;
-    }
-
-    if(isAudioFile(file) && !isMov){
-      try{
-        const direct = await decodeBlobDirectly(file);
-        direct._wavecutLoadMethod = 'direct-stable-audio';
-        direct._wavecutMediaDuration = mediaInfo?.duration || direct.duration;
-        return direct;
-      }catch(e){
-        console.warn('Direct audio decode failed; fallback to media capture', e);
-      }
-    }
-
-    if(isVideo || isMov){
-      try{
-        const captured = await extractAudioViaUserTapMediaCapture(file, mediaInfo);
-        captured._wavecutLoadMethod = isMov ? 'mov-user-tap-media-capture-stable' : 'video-user-tap-media-capture-stable';
-        captured._wavecutMediaDuration = mediaInfo?.duration || captured.duration;
-        return captured;
-      }catch(e){
-        console.warn('User tap capture failed; fallback to playable media', e);
-      }
-    }
-
-    try{
-      const playable = await extractAudioViaPlayableMedia(file, mediaInfo);
-      playable._wavecutLoadMethod = 'playable-media-capture-stable';
-      playable._wavecutMediaDuration = mediaInfo?.duration || playable.duration;
-      return playable;
-    }catch(playableError){
-      console.warn('Playable media capture failed; final fallback to original decoder', playableError);
-      const decoded = await originalDecodeFileToAudioBuffer(file);
-      decoded._wavecutLoadMethod = decoded._wavecutLoadMethod || 'original-decoder-fallback';
-      decoded._wavecutMediaDuration = mediaInfo?.duration || decoded.duration;
-      return decoded;
-    }
-  };
-
-  loadFileToTrack = async function(file, track){
-    if(!file || wavecutLoadingBusy) return;
-    if(!FIXED_TRACKS.includes(track)) track = 'chorus';
-    wavecutLoadingBusy = true;
-    if(selectedFileName) selectedFileName.textContent = file.name;
-    ensureAudioContext();
-    try{
-      if(audioContext && audioContext.state === 'suspended'){
-        try{ await audioContext.resume(); }catch(e){}
-      }
-      fileStatus.classList.add('extracting');
-      fileStatus.innerHTML = `読み込み中...<br>${file.name}<br><span class="ffmpeg-note">大きい動画は画面ロック・別アプリ移動をしないでください。</span>`;
-      const decoded = await decodeFileToAudioBuffer(file);
-      if(track === 'take'){
-        importBufferAsClip('take', decoded, file.name);
-        takeOffsetMs = 0; takeFxBaked = false; takeFxBackup = null;
-        activeBufferType = 'take';
-        setFileStatus(file, 'トラック2として読み込み', decoded);
-      }else if(track === 'chorus'){
-        importBufferAsClip('chorus', decoded, file.name);
-        chorusOffsetMs = 0; chorusFxBaked = false; chorusFxBackup = null;
-        activeBufferType = 'chorus';
-        setFileStatus(file, 'トラック3として読み込み', decoded);
-      }else{
-        importBufferAsClip('main', decoded, file.name);
-        mainFxBaked = false; mainFxBackup = null;
-        activeBufferType = 'main';
-        setFileStatus(file, 'トラック1として読み込み', decoded);
-      }
-      saveInitialEditState(track === 'take' ? 'トラック2読込直後' : track === 'chorus' ? 'トラック3読込直後' : 'トラック1読込直後');
-      resetFx(); selectedStart = null; selectedEnd = null; playheadRatio = 0; viewportStart = 0;
-      clampViewport(); invalidateWaveformCache(); refreshPreview(); updateButtons(); refresh3TrackView();
-    }catch(err){
-      console.error(err);
-      alert('音声を読み込めませんでした。別アプリへ移動せず、短めのファイルまたはMP3/WAV/M4A/MP4/MOVで再試行してください。詳細: ' + err.message);
-      if(fileStatus) fileStatus.textContent = '読み込み失敗：' + err.message;
-    }finally{
-      wavecutLoadingBusy = false;
-      if(fileStatus) fileStatus.classList.remove('extracting');
-    }
-  };
-
-  const rebinding = [
-    ['fileInputMain','main'],
-    ['fileInputTake','take'],
-    ['fileInputChorus','chorus']
-  ];
-  rebinding.forEach(([id, track])=>{
-    const input = document.getElementById(id);
-    if(input){
-      input.onchange = e => {
-        const f = e.target.files && e.target.files[0];
-        loadFileToTrack(f, track);
-        input.value = '';
-      };
-    }
-  });
-
-  const recMap = [
-    ['recMainBtn','main'],
-    ['recTakeBtn','take'],
-    ['recChorusBtn','chorus']
-  ];
-  recMap.forEach(([id, track])=>{
-    const btn = document.getElementById(id);
-    if(btn) btn.onclick = () => toggleTrackRecording(track);
-  });
-
-  if(micGainSlider){
-    micGainSlider.addEventListener('input', ()=>{
-      if(micGainNode) micGainNode.gain.value = getMicGainLinear();
-      if(fileStatus && liveTracks(currentStream)){
-        const db = Number(micGainSlider.value || 0);
-        fileStatus.textContent = `マイクゲインを${db > 0 ? '+' : ''}${db} dBに設定しました。録音にも反映されます。`;
-      }
-    });
-  }
-})();
-</script>
-
 </body>
 </html>
