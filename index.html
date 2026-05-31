@@ -7399,19 +7399,48 @@ function positionTrackEditPopup(anchorEl, mode="track"){
   if(!popup) return;
   const vw = window.innerWidth || document.documentElement.clientWidth || 360;
   const vh = window.innerHeight || document.documentElement.clientHeight || 640;
+  const scrollX = window.scrollX || window.pageXOffset || 0;
+  const scrollY = window.scrollY || window.pageYOffset || 0;
   const margin = 10;
   let anchorRect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
 
   if(mode === "wave"){
-    const waveRect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : anchorRect;
-    if(waveRect){
+    // Wave Edit の編集メニューは、必ず Wave Edit 内の編集ボタン直下に出す。
+    // 波形キャンバス基準だと画面余白の都合で上のトラック付近へ逃げることがある。
+    const btnRect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+    if(btnRect){
       anchorRect = {
-        left: waveRect.left,
-        right: waveRect.right,
-        top: waveRect.top,
-        bottom: waveRect.bottom,
-        width: waveRect.width,
-        height: waveRect.height
+        left: btnRect.left,
+        right: btnRect.right,
+        top: btnRect.top,
+        bottom: btnRect.bottom,
+        width: btnRect.width,
+        height: btnRect.height
+      };
+    }
+  }else if(anchorEl && anchorEl.closest){
+    const editBar = anchorEl.closest(".track-edit-bar");
+    const lane = anchorEl.closest(".track-lane");
+    const trackRect = (lane && lane.getBoundingClientRect) ? lane.getBoundingClientRect() : null;
+    const barRect = (editBar && editBar.getBoundingClientRect) ? editBar.getBoundingClientRect() : null;
+    const baseRect = trackRect || barRect;
+    if(baseRect){
+      anchorRect = {
+        left: baseRect.left,
+        right: baseRect.right,
+        top: baseRect.top,
+        bottom: baseRect.bottom,
+        width: baseRect.width,
+        height: baseRect.height
+      };
+    }else if(barRect){
+      anchorRect = {
+        left: barRect.left,
+        right: barRect.right,
+        top: barRect.top,
+        bottom: barRect.bottom,
+        width: barRect.width,
+        height: barRect.height
       };
     }
   }
@@ -7430,20 +7459,21 @@ function positionTrackEditPopup(anchorEl, mode="track"){
   centerX = Math.max(half + margin, Math.min(vw - half - margin, centerX));
 
   const safeTop = margin + (window.visualViewport ? window.visualViewport.offsetTop || 0 : 0);
-  const minPopupHeight = Math.min(300, Math.max(180, vh * 0.42));
-  let top = anchorRect.bottom + (mode === "wave" ? 10 : 8);
+  let top = anchorRect.bottom + (mode === "wave" ? 14 : 14);
   const spaceBelow = vh - top - margin;
-  if(spaceBelow < 170 && anchorRect.top - safeTop > spaceBelow){
+  if(mode !== "wave" && spaceBelow < 170 && anchorRect.top - safeTop > spaceBelow){
+    const minPopupHeight = Math.min(300, Math.max(180, vh * 0.42));
     top = Math.max(safeTop, anchorRect.top - minPopupHeight - 8);
   }
-  top = Math.max(safeTop, Math.min(top, vh - 170));
-  const maxHeight = Math.max(160, vh - top - margin);
+  top = Math.max(safeTop, top);
+  const viewportMaxHeight = Math.max(160, vh - Math.min(top, vh - 170) - margin);
 
+  popup.style.position = "absolute";
   popup.style.width = `${popupWidth}px`;
-  popup.style.left = `${centerX}px`;
-  popup.style.top = `${top}px`;
+  popup.style.left = `${centerX + scrollX}px`;
+  popup.style.top = `${top + scrollY}px`;
   popup.style.transform = "translateX(-50%)";
-  popup.style.maxHeight = `${maxHeight}px`;
+  popup.style.maxHeight = `${viewportMaxHeight}px`;
 }
 
 function refreshTrackEditPopupButtons(track){
