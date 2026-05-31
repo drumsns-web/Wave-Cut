@@ -793,6 +793,17 @@ audio{width:100%;margin:8px 0}
   box-shadow:0 18px 70px rgba(0,0,0,.62);
 }
 .track-edit-popup.open{display:block;}
+.track-edit-popup.wave-inline-popup{
+  position:static !important;
+  top:auto !important;
+  bottom:auto !important;
+  left:auto !important;
+  transform:none !important;
+  width:100% !important;
+  max-height:60dvh !important;
+  margin:10px 0 12px !important;
+  z-index:20;
+}
 .track-edit-popup-header{
   display:flex;
   align-items:center;
@@ -7388,7 +7399,11 @@ function performTrackFxToggle(track){
 function closeTrackEditPopup(){
   const popup = document.getElementById("trackEditPopup");
   const backdrop = document.getElementById("trackEditPopupBackdrop");
-  if(popup) popup.classList.remove("open");
+  if(popup){
+    popup.classList.remove("open");
+    popup.classList.remove("wave-inline-popup");
+    document.body.appendChild(popup);
+  }
   if(backdrop) backdrop.classList.remove("open");
   trackEditPopupTrack = null;
   trackEditPopupAnchor = null;
@@ -7398,6 +7413,25 @@ function closeTrackEditPopup(){
 function positionTrackEditPopup(anchorEl, mode="track"){
   const popup = document.getElementById("trackEditPopup");
   if(!popup) return;
+  if(mode === "wave"){
+    const toolbar = document.querySelector(".wave-edit-toolbar");
+    if(toolbar && popup.parentNode !== toolbar.parentNode){
+      toolbar.insertAdjacentElement("afterend", popup);
+    }else if(toolbar){
+      toolbar.insertAdjacentElement("afterend", popup);
+    }
+    popup.classList.add("wave-inline-popup");
+    popup.style.position = "";
+    popup.style.width = "";
+    popup.style.left = "";
+    popup.style.top = "";
+    popup.style.bottom = "";
+    popup.style.transform = "";
+    popup.style.maxHeight = "";
+    return;
+  }
+  popup.classList.remove("wave-inline-popup");
+  if(popup.parentNode !== document.body) document.body.appendChild(popup);
   const vw = window.innerWidth || document.documentElement.clientWidth || 360;
   const margin = 10;
   const popupWidth = Math.min(520, Math.max(280, vw - margin * 2));
@@ -7443,7 +7477,7 @@ function openTrackEditPopup(track, anchorEl=null, mode="track"){
   const backdrop = document.getElementById("trackEditPopupBackdrop");
   updateTrackEditPopupInfo(track);
   refreshTrackEditPopupButtons(track);
-  if(backdrop) backdrop.classList.add("open");
+  if(backdrop) backdrop.classList.toggle("open", mode !== "wave");
   if(popup){
     popup.classList.add("open");
     positionTrackEditPopup(anchorEl, mode);
