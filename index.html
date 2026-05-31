@@ -1496,6 +1496,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-edit" id="editClipMain" title="クリップ編集モード（つかんで動かす）">✋</button>
           <button class="teb-btn teb-fx" id="fxToggleMain" title="エフェクト">FX</button>
           <button class="teb-btn teb-undo" id="tebUndoMain" title="元に戻す" disabled>↩</button>
+          <button class="teb-btn teb-undo" id="tebRedoMain" title="やり直す" disabled>↪</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutMain"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyMain"  title="選択をコピー" disabled>⎘</button>
@@ -1592,6 +1593,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-edit" id="editClipTake" title="クリップ編集モード（つかんで動かす）">✋</button>
           <button class="teb-btn teb-fx" id="fxToggleTake" title="エフェクト">FX</button>
           <button class="teb-btn teb-undo" id="tebUndoTake" title="元に戻す" disabled>↩</button>
+          <button class="teb-btn teb-undo" id="tebRedoTake" title="やり直す" disabled>↪</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutTake"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyTake"  title="選択をコピー" disabled>⎘</button>
@@ -1707,6 +1709,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
           <button class="teb-btn teb-edit" id="editClipChorus" title="クリップ編集モード（つかんで動かす）">✋</button>
           <button class="teb-btn teb-fx" id="fxToggleChorus" title="エフェクト">FX</button>
           <button class="teb-btn teb-undo" id="tebUndoChorus" title="元に戻す" disabled>↩</button>
+          <button class="teb-btn teb-undo" id="tebRedoChorus" title="やり直す" disabled>↪</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCutChorus"   title="選択をカット（クリップへ）" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopyChorus"  title="選択をコピー" disabled>⎘</button>
@@ -1815,6 +1818,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
       <button type="button" class="track-edit-action" data-edit-action="hand"><span class="icon">✋</span><span>手のひら<small>分割クリップをつかんで移動</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="fx"><span class="icon">FX</span><span>エフェクト<small>FXパネルを開く</small></span></button>
       <button type="button" class="track-edit-action" data-edit-action="undo"><span class="icon">↩</span><span>元に戻す<small>直前の編集を取り消す</small></span></button>
+      <button type="button" class="track-edit-action" data-edit-action="redo"><span class="icon">↪</span><span>やり直す<small>アンドゥを取り消す</small></span></button>
     </div>
   </div>
 
@@ -1885,6 +1889,7 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
     <button id="waveMenuBtn" class="teb-btn teb-menu" title="編集メニュー" disabled>編集</button>
     <button id="waveFxBtn" class="teb-btn teb-fx" title="エフェクト" disabled>FX</button>
     <button id="waveTrackUndoBtn" class="teb-btn teb-undo" title="このトラックの編集を元に戻す" disabled>↩</button>
+    <button id="waveTrackRedoBtn" class="teb-btn teb-undo" title="このトラックの編集をやり直す" disabled>↪</button>
     <span class="teb-sep"></span>
     <button id="waveRestartBtn" class="teb-btn teb-restart" title="最初に戻る" disabled>⏮</button>
     <button id="waveNudgeM500Btn" class="teb-btn teb-quick-shift neg" title="トラック全体を-500ms" disabled>⏪</button>
@@ -1940,6 +1945,9 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
     </div>
     <div class="row">
       <button id="undoEditBtn" disabled>元に戻す（0/15）</button>
+      <button id="redoEditBtn" disabled>やり直す（0/15）</button>
+    </div>
+    <div class="row">
       <button id="resetInitialBtn" disabled class="red">最初の状態にリセット</button>
     </div>
     <div id="clipboardStatus" class="advanced-status">クリップ：なし</div>
@@ -2057,6 +2065,7 @@ let ffmpegLoaded = false;
 let clipboardBuffer = null;
 let clipboardSourceLabel = "";
 let undoStack = [];
+let redoStack = [];
 const MAX_UNDO_STEPS = 15;
 let initialEditState = null;
 let initialEditLabel = "";
@@ -2135,6 +2144,7 @@ const copyToClipboardBtn = document.getElementById("copyToClipboardBtn");
 const pasteClipboardBtn = document.getElementById("pasteClipboardBtn");
 const clearClipboardBtn = document.getElementById("clearClipboardBtn");
 const undoEditBtn = document.getElementById("undoEditBtn");
+const redoEditBtn = document.getElementById("redoEditBtn");
 const resetInitialBtn = document.getElementById("resetInitialBtn");
 const clipboardStatus = document.getElementById("clipboardStatus");
 const saveWavBtn = document.getElementById("saveWavBtn");
@@ -2225,6 +2235,7 @@ const waveHandBtn = document.getElementById("waveHandBtn");
 const waveMenuBtn = document.getElementById("waveMenuBtn");
 const waveFxBtn = document.getElementById("waveFxBtn");
 const waveTrackUndoBtn = document.getElementById("waveTrackUndoBtn");
+const waveTrackRedoBtn = document.getElementById("waveTrackRedoBtn");
 const waveRestartBtn = document.getElementById("waveRestartBtn");
 const waveNudgeM500Btn = document.getElementById("waveNudgeM500Btn");
 const waveNudgeM100Btn = document.getElementById("waveNudgeM100Btn");
@@ -2512,6 +2523,9 @@ window.addEventListener("resize",()=>{
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
   if(typeof drawStackedTimelines === "function") drawStackedTimelines();
+  if(trackEditPopupTrack){
+    positionTrackEditPopup(trackEditPopupAnchor, trackEditPopupMode);
+  }
 });
 // CSS適用後の正確なサイズで再計測（初回レイアウト確定後）
 window.addEventListener("load", ()=>{
@@ -4235,6 +4249,7 @@ function updateButtons(){
   if(waveMenuBtn) waveMenuBtn.disabled = !hasActive;
   if(waveFxBtn) waveFxBtn.disabled = !hasActive || !document.getElementById(`fxToggle${cap(activeBufferType)}`);
   if(waveTrackUndoBtn) waveTrackUndoBtn.disabled = !(hasActive && activeTrackState && activeTrackState.undoStack.length);
+  if(waveTrackRedoBtn) waveTrackRedoBtn.disabled = !(hasActive && activeTrackState && activeTrackState.redoStack && activeTrackState.redoStack.length);
   if(waveRestartBtn) waveRestartBtn.disabled = !hasActive;
   [waveNudgeM500Btn,waveNudgeM100Btn,waveNudgeP100Btn,waveNudgeP500Btn].forEach(btn=>{
     if(btn) btn.disabled = !hasActive;
@@ -4252,6 +4267,10 @@ function updateButtons(){
   clearClipboardBtn.disabled = !clipboardBuffer;
   undoEditBtn.disabled = undoStack.length === 0;
   undoEditBtn.textContent = `元に戻す（${undoStack.length}/${MAX_UNDO_STEPS}）`;
+  if(redoEditBtn){
+    redoEditBtn.disabled = redoStack.length === 0;
+    redoEditBtn.textContent = `やり直す（${redoStack.length}/${MAX_UNDO_STEPS}）`;
+  }
   if(resetInitialBtn) resetInitialBtn.disabled = !initialEditState;
   updateClipboardStatus();
   saveWavBtn.disabled = !mainBuffer;
@@ -5322,6 +5341,8 @@ function createExtraTrackHTML(id, emoji, name){
           <span class="teb-sep"></span>
           <button class="teb-btn teb-menu" id="tebMenu${c1}" data-track="${id}" title="編集メニュー" disabled>編集</button>
           <button class="teb-btn teb-edit" id="editClip${c1}" title="クリップ編集モード">✋</button>
+          <button class="teb-btn teb-undo" id="tebUndo${c1}" title="元に戻す" disabled>↩</button>
+          <button class="teb-btn teb-undo" id="tebRedo${c1}" title="やり直す" disabled>↪</button>
           <span class="teb-sep"></span>
           <button class="teb-btn teb-cut"   id="tebCut${c1}"   title="選択をカット" disabled>✂</button>
           <button class="teb-btn teb-copy"  id="tebCopy${c1}"  title="選択をコピー" disabled>⎘</button>
@@ -5356,7 +5377,7 @@ function addExtraTrack(opts){
   // 状態オブジェクト追加
   extraTracks.push({ id, name, emoji, offsetMs: 0, fxBaked: false, fxBackup: null });
   trackClips[id] = [];
-  trackState[id] = { playheadRatio: 0, selStart: null, selEnd: null, undoStack: [], clipboard: null, selectedClipId: null };
+  trackState[id] = { playheadRatio: 0, selStart: null, selEnd: null, undoStack: [], redoStack: [], clipboard: null, selectedClipId: null };
   // HTML挿入
   const stack = document.getElementById("trackStack");
   if(stack){
@@ -6164,7 +6185,7 @@ if(waveHandBtn){
 if(waveMenuBtn){
   waveMenuBtn.onclick = ()=>{
     if(!activeBuffer()) return;
-    openTrackEditPopup(activeBufferType);
+    openTrackEditPopup(activeBufferType, waveMenuBtn, "wave");
   };
 }
 if(waveFxBtn){
@@ -6177,6 +6198,13 @@ if(waveTrackUndoBtn){
   waveTrackUndoBtn.onclick = ()=>{
     if(!activeBuffer()) return;
     trackUndo(activeBufferType);
+    refreshWaveEditFromTrack(activeBufferType, {switchToTrack:true});
+  };
+}
+if(waveTrackRedoBtn){
+  waveTrackRedoBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    trackRedo(activeBufferType);
     refreshWaveEditFromTrack(activeBufferType, {switchToTrack:true});
   };
 }
@@ -6218,13 +6246,14 @@ trimBtn.onclick=()=>{
 function updateClipboardStatus(){
   if(!clipboardStatus) return;
   const undoText = undoStack.length > 0 ? ` / アンドゥ：${undoStack.length}/${MAX_UNDO_STEPS}` : "";
+  const redoText = redoStack.length > 0 ? ` / リドゥ：${redoStack.length}/${MAX_UNDO_STEPS}` : "";
   const resetText = initialEditState ? ` / 初期リセット可：${initialEditLabel || "読み込み直後"}` : "";
   if(!clipboardBuffer){
-    clipboardStatus.textContent = `クリップ：なし${undoText}${resetText}`;
+    clipboardStatus.textContent = `クリップ：なし${undoText}${redoText}${resetText}`;
     return;
   }
   const label = clipboardSourceLabel ? `${clipboardSourceLabel} / ` : "";
-  clipboardStatus.textContent = `クリップ保持中：${label}${formatTimeMs(clipboardBuffer.duration)}${undoText}${resetText}`;
+  clipboardStatus.textContent = `クリップ保持中：${label}${formatTimeMs(clipboardBuffer.duration)}${undoText}${redoText}${resetText}`;
 }
 
 function createEditSnapshot(label="編集"){
@@ -6255,12 +6284,12 @@ function saveUndoState(label="編集"){
   if(undoStack.length > MAX_UNDO_STEPS){
     undoStack.shift();
   }
+  redoStack = [];
   updateClipboardStatus();
+  updateButtons();
 }
 
-function restoreUndoState(){
-  if(undoStack.length === 0) return;
-  const state = undoStack.pop();
+function applyEditSnapshot(state){
   mainBuffer = state.mainBuffer ? cloneBuffer(state.mainBuffer) : null;
   takeBuffer = state.takeBuffer ? cloneBuffer(state.takeBuffer) : null;
   chorusBuffer = state.chorusBuffer ? cloneBuffer(state.chorusBuffer) : null;
@@ -6285,8 +6314,26 @@ function restoreUndoState(){
   invalidateWaveformCache();
   refreshPreview();
   updateButtons();
+}
+
+function restoreUndoState(){
+  if(undoStack.length === 0) return;
+  redoStack.push(createEditSnapshot("リドゥ"));
+  if(redoStack.length > MAX_UNDO_STEPS) redoStack.shift();
+  const state = undoStack.pop();
+  applyEditSnapshot(state);
   fileStatus.classList.remove("extracting");
   fileStatus.innerHTML = `✅ 元に戻しました。<br>${state.label || "直前の編集"}の前の状態に戻しています。残りアンドゥ：${undoStack.length}/${MAX_UNDO_STEPS}`;
+}
+
+function restoreRedoState(){
+  if(redoStack.length === 0) return;
+  undoStack.push(createEditSnapshot("リドゥ前"));
+  if(undoStack.length > MAX_UNDO_STEPS) undoStack.shift();
+  const state = redoStack.pop();
+  applyEditSnapshot(state);
+  fileStatus.classList.remove("extracting");
+  fileStatus.innerHTML = `✅ やり直しました。<br>アンドゥ前の状態へ進めています。残りリドゥ：${redoStack.length}/${MAX_UNDO_STEPS}`;
 }
 
 function saveInitialEditState(label="読み込み直後"){
@@ -6304,6 +6351,7 @@ function saveInitialEditState(label="読み込み直後"){
   };
   initialEditLabel = label;
   undoStack = [];
+  redoStack = [];
   updateClipboardStatus();
 }
 
@@ -6340,6 +6388,7 @@ function resetToInitialEditState(){
   clipboardBuffer = null;
   clipboardSourceLabel = "";
   undoStack = [];
+  redoStack = [];
 
   resetFx();
   clampViewport();
@@ -6424,6 +6473,12 @@ clearClipboardBtn.onclick=()=>{
 undoEditBtn.onclick=()=>{
   restoreUndoState();
 };
+
+if(redoEditBtn){
+  redoEditBtn.onclick=()=>{
+    restoreRedoState();
+  };
+}
 
 if(resetInitialBtn){
   resetInitialBtn.onclick=()=>{
@@ -6541,9 +6596,9 @@ if(previewMixBtn){
 
 // 各トラックの独立した編集状態
 const trackState = {
-  main:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
-  take:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
-  chorus: { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], clipboard:null, selectedClipId:null },
+  main:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], redoStack:[], clipboard:null, selectedClipId:null },
+  take:   { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], redoStack:[], clipboard:null, selectedClipId:null },
+  chorus: { playheadRatio:0, selStart:null, selEnd:null, undoStack:[], redoStack:[], clipboard:null, selectedClipId:null },
 };
 const TRACK_MAX_UNDO = 10;
 
@@ -6558,24 +6613,32 @@ function cloneClipList(track){
   }));
 }
 
-function trackPushUndo(track, label){
+function createTrackSnapshot(track, label){
   const st = getTrackState(track);
   const buf = bufferForTrack(track);
-  if(!buf) return;
-  st.undoStack.push({
+  if(!buf) return null;
+  return {
     label,
     buffer: cloneBuffer(buf),
     clips: cloneClipList(track),
-    offsetMs: getTrackOffsetMs(track)
-  });
+    offsetMs: getTrackOffsetMs(track),
+    playheadRatio: st.playheadRatio || 0,
+    selectedClipId: st.selectedClipId || null
+  };
+}
+
+function trackPushUndo(track, label){
+  const st = getTrackState(track);
+  const snap = createTrackSnapshot(track, label);
+  if(!snap) return;
+  st.undoStack.push(snap);
   if(st.undoStack.length > TRACK_MAX_UNDO) st.undoStack.shift();
+  st.redoStack = [];
   updateTrackEditBar(track);
 }
 
-function trackUndo(track){
+function applyTrackSnapshot(track, snap){
   const st = getTrackState(track);
-  if(!st.undoStack.length) return;
-  const snap = st.undoStack.pop();
   if(snap.clips){
     trackClips[track] = snap.clips.map(cl => ({
       id: cl.id,
@@ -6593,12 +6656,38 @@ function trackUndo(track){
   if(track === "take") takeOffsetMs = snap.offsetMs;
   else if(track === "chorus") chorusOffsetMs = snap.offsetMs;
   else if(isExtraTrack(track)){ const t = getExtraTrack(track); if(t) t.offsetMs = snap.offsetMs; }
-  st.selStart = null; st.selEnd = null; st.playheadRatio = 0;
+  st.selStart = null; st.selEnd = null;
+  st.playheadRatio = snap.playheadRatio || 0;
+  st.selectedClipId = snap.selectedClipId || null;
   invalidateWaveformCache();
   drawStackedTimelines();
   updateTrackEditBar(track);
   updateButtons();
   refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
+}
+
+function trackUndo(track){
+  const st = getTrackState(track);
+  if(!st.undoStack.length) return;
+  const current = createTrackSnapshot(track, "リドゥ");
+  if(current){
+    st.redoStack.push(current);
+    if(st.redoStack.length > TRACK_MAX_UNDO) st.redoStack.shift();
+  }
+  const snap = st.undoStack.pop();
+  applyTrackSnapshot(track, snap);
+}
+
+function trackRedo(track){
+  const st = getTrackState(track);
+  if(!st.redoStack || !st.redoStack.length) return;
+  const current = createTrackSnapshot(track, "アンドゥ");
+  if(current){
+    st.undoStack.push(current);
+    if(st.undoStack.length > TRACK_MAX_UNDO) st.undoStack.shift();
+  }
+  const snap = st.redoStack.pop();
+  applyTrackSnapshot(track, snap);
 }
 
 // ── per-track canvas interaction ─────────────────────────────────
@@ -7000,6 +7089,7 @@ function updateTrackEditBar(track){
     copy:  `tebCopy${cap(track)}`,
     paste: `tebPaste${cap(track)}`,
     undo:  `tebUndo${cap(track)}`,
+    redo:  `tebRedo${cap(track)}`,
     setA:  `tebSetA${cap(track)}`,
     setB:  `tebSetB${cap(track)}`,
   };
@@ -7009,6 +7099,7 @@ function updateTrackEditBar(track){
   if(el(ids.copy))  el(ids.copy).disabled  = !hasSel;
   if(el(ids.paste)) el(ids.paste).disabled = !(buf && hasClip);
   if(el(ids.undo))  el(ids.undo).disabled  = !st.undoStack.length;
+  if(el(ids.redo))  el(ids.redo).disabled  = !(st.redoStack && st.redoStack.length);
   if(el(ids.setA))  el(ids.setA).disabled  = !buf;
   if(el(ids.setB))  el(ids.setB).disabled  = !buf;
 
@@ -7024,6 +7115,8 @@ function updateTrackEditBar(track){
 function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g,""); }
 
 let trackEditPopupTrack = null;
+let trackEditPopupAnchor = null;
+let trackEditPopupMode = "track";
 
 function syncActiveSelectionFromTrack(track){
   const st = getTrackState(track);
@@ -7297,6 +7390,56 @@ function closeTrackEditPopup(){
   if(popup) popup.classList.remove("open");
   if(backdrop) backdrop.classList.remove("open");
   trackEditPopupTrack = null;
+  trackEditPopupAnchor = null;
+  trackEditPopupMode = "track";
+}
+
+function positionTrackEditPopup(anchorEl, mode="track"){
+  const popup = document.getElementById("trackEditPopup");
+  if(!popup) return;
+  const vw = window.innerWidth || document.documentElement.clientWidth || 360;
+  const vh = window.innerHeight || document.documentElement.clientHeight || 640;
+  const margin = 10;
+  let anchorRect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
+
+  if(mode === "wave"){
+    const waveRect = canvas && canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : anchorRect;
+    if(waveRect){
+      anchorRect = {
+        left: waveRect.left,
+        right: waveRect.right,
+        top: waveRect.top,
+        bottom: waveRect.bottom,
+        width: waveRect.width,
+        height: waveRect.height
+      };
+    }
+  }
+
+  if(!anchorRect){
+    popup.style.left = "50%";
+    popup.style.top = "max(14px, env(safe-area-inset-top))";
+    popup.style.transform = "translateX(-50%)";
+    popup.style.maxHeight = "calc(100dvh - 28px)";
+    return;
+  }
+
+  const popupWidth = Math.min(520, Math.max(280, vw - margin * 2));
+  const half = popupWidth / 2;
+  let centerX = anchorRect.left + anchorRect.width / 2;
+  centerX = Math.max(half + margin, Math.min(vw - half - margin, centerX));
+
+  let top = mode === "wave" ? anchorRect.bottom + 8 : anchorRect.bottom + 6;
+  const minTop = margin + (window.visualViewport ? window.visualViewport.offsetTop || 0 : 0);
+  const measuredHeight = popup.offsetHeight || 360;
+  const maxTop = Math.max(minTop, vh - Math.min(measuredHeight, vh - margin * 2) - margin);
+  top = Math.max(minTop, Math.min(top, maxTop));
+
+  popup.style.width = `${popupWidth}px`;
+  popup.style.left = `${centerX}px`;
+  popup.style.top = `${top}px`;
+  popup.style.transform = "translateX(-50%)";
+  popup.style.maxHeight = `${Math.max(180, vh - top - margin)}px`;
 }
 
 function refreshTrackEditPopupButtons(track){
@@ -7314,23 +7457,30 @@ function refreshTrackEditPopupButtons(track){
       (["cut","copy"].includes(action) && !hasSel) ||
       (action === "paste" && !(buf && hasClip)) ||
       (action === "undo" && !st.undoStack.length) ||
+      (action === "redo" && !(st.redoStack && st.redoStack.length)) ||
       (action.startsWith("nudge") && (!buf || track === "main")) ||
       fxMissing;
     if(action === "hand") btn.classList.toggle("active", editClipMode);
   });
 }
 
-function openTrackEditPopup(track){
+function openTrackEditPopup(track, anchorEl=null, mode="track"){
   const buf = bufferForTrack(track);
   if(!buf) return;
   trackEditPopupTrack = track;
+  trackEditPopupAnchor = anchorEl;
+  trackEditPopupMode = mode;
   activeBufferType = track;
   const popup = document.getElementById("trackEditPopup");
   const backdrop = document.getElementById("trackEditPopupBackdrop");
   updateTrackEditPopupInfo(track);
   refreshTrackEditPopupButtons(track);
   if(backdrop) backdrop.classList.add("open");
-  if(popup) popup.classList.add("open");
+  if(popup){
+    popup.classList.add("open");
+    positionTrackEditPopup(anchorEl, mode);
+    requestAnimationFrame(()=>positionTrackEditPopup(anchorEl, mode));
+  }
 }
 
 function installTrackEditPopup(){
@@ -7363,6 +7513,11 @@ function installTrackEditPopup(){
         else if(action === "fx") performTrackFxToggle(track);
         else if(action === "undo"){
           trackUndo(track);
+          keepOpen = true;
+        }
+        else if(action === "redo"){
+          trackRedo(track);
+          keepOpen = true;
         }
         if(keepOpen){
           updateTrackEditPopupInfo(track);
@@ -7378,7 +7533,7 @@ function installTrackEditPopup(){
 function installTrackEditMenuButtons(track){
   const c = cap(track);
   const menuBtn = document.getElementById(`tebMenu${c}`);
-  if(menuBtn) menuBtn.onclick = ()=>openTrackEditPopup(track);
+  if(menuBtn) menuBtn.onclick = ()=>openTrackEditPopup(track, menuBtn, "track");
   const setABtn = document.getElementById(`tebSetA${c}`);
   if(setABtn) setABtn.onclick = ()=>setTrackPoint(track, "A");
   const setBBtn = document.getElementById(`tebSetB${c}`);
@@ -7438,6 +7593,8 @@ function setupTrackEditBar(track){
   // ↩ アンドゥ
   const undoBtn_ = document.getElementById(`tebUndo${c}`);
   if(undoBtn_) undoBtn_.onclick = ()=>{ trackUndo(track); };
+  const redoBtn_ = document.getElementById(`tebRedo${c}`);
+  if(redoBtn_) redoBtn_.onclick = ()=>{ trackRedo(track); };
 
   // ✀ 分割（カーソル位置でクリップを2つに割る）
   const splitBtn_ = document.getElementById(`tebSplit${c}`);
