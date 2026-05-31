@@ -158,9 +158,112 @@ input[type="range"]{width:100%;accent-color:var(--green)}
   border-radius:14px;
   padding:10px;
   background:rgba(2,6,23,.42);
+  transition:border-color .16s ease,background .16s ease,box-shadow .16s ease;
 }
 .time-card b{display:block;color:#94a3b8;font-size:11px;margin-bottom:4px}
 .time-card span{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:18px;font-weight:900}
+.time-card.active{
+  border-color:rgba(53,224,161,.68);
+  background:rgba(53,224,161,.12);
+  box-shadow:0 0 0 1px rgba(53,224,161,.18) inset;
+}
+.time-card.end-active{
+  border-color:rgba(79,140,255,.7);
+  background:rgba(79,140,255,.12);
+  box-shadow:0 0 0 1px rgba(79,140,255,.18) inset;
+}
+.selection-hint{
+  margin-top:8px;
+  padding:9px 10px;
+  border-radius:12px;
+  border:1px solid rgba(245,158,11,.24);
+  background:rgba(245,158,11,.1);
+  color:#fde68a;
+  font-size:13px;
+  font-weight:800;
+}
+.meter{
+  height:14px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  background:#020617;
+  margin-top:10px;
+}
+.meter-fill{
+  width:0%;
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#35e0a1,#f59e0b,#ef4444);
+  transition:width .08s linear;
+}
+.recording-dot{
+  display:inline-block;
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  margin-right:6px;
+  background:#64748b;
+  vertical-align:middle;
+}
+.recording-dot.on{
+  background:#ef4444;
+  box-shadow:0 0 0 0 rgba(239,68,68,.6);
+  animation:pulse 1s infinite;
+}
+@keyframes pulse{
+  70%{box-shadow:0 0 0 9px rgba(239,68,68,0)}
+  100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}
+}
+.popup-backdrop{
+  position:fixed;
+  inset:0;
+  display:none;
+  background:rgba(2,6,23,.72);
+  backdrop-filter:blur(8px);
+  z-index:20;
+}
+.popup{
+  position:fixed;
+  left:50%;
+  bottom:16px;
+  width:min(540px,calc(100% - 24px));
+  max-height:78vh;
+  overflow:auto;
+  display:none;
+  transform:translateX(-50%);
+  z-index:21;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:18px;
+  background:linear-gradient(180deg,#111827,#0f172a);
+  box-shadow:0 24px 80px rgba(0,0,0,.55);
+  padding:14px;
+}
+.popup.show,.popup-backdrop.show{display:block}
+.popup-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:10px;
+}
+.popup-title{font-size:16px;font-weight:900;color:#dbeafe}
+.popup-close{
+  width:42px;
+  min-height:38px;
+  padding:0;
+  border-radius:12px;
+}
+.popup-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+}
+.popup-grid button{
+  min-height:54px;
+  text-align:left;
+  padding:10px 12px;
+}
 select{
   width:100%;
   min-height:44px;
@@ -196,6 +299,16 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
   </section>
 
   <section class="card">
+    <p class="section-title">Mic <span class="pill" id="micPill">OFF</span></p>
+    <div class="grid2">
+      <button id="recordBtn" class="red">録音開始</button>
+      <button id="clearMicBtn" disabled>音源を消す</button>
+    </div>
+    <div class="meter"><div class="meter-fill" id="micMeterFill"></div></div>
+    <div class="info" id="micStatus"><span class="recording-dot" id="recordingDot"></span>マイク録音も1トラックとして読み込めます。</div>
+  </section>
+
+  <section class="card">
     <p class="section-title">Waveform <span class="pill" id="selectionPill">未選択</span></p>
     <div class="wave-wrap">
       <canvas id="waveCanvas"></canvas>
@@ -217,9 +330,10 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
       <input id="viewScroll" type="range" min="0" max="1000" value="0" disabled>
     </div>
     <div class="selection-box">
-      <div class="time-card"><b>A 開始点</b><span id="startLabel">--:--.--</span></div>
-      <div class="time-card"><b>B 終了点</b><span id="endLabel">--:--.--</span></div>
+      <div class="time-card" id="startCard"><b>A 開始点</b><span id="startLabel">--:--.--</span></div>
+      <div class="time-card" id="endCard"><b>B 終了点</b><span id="endLabel">--:--.--</span></div>
     </div>
+    <div class="selection-hint" id="selectionHint">AとBを指定すると、選択範囲が波形上で明るく表示されます。</div>
   </section>
 
   <section class="card">
@@ -242,6 +356,7 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
       <button id="setEndBtn" disabled>B：現在位置</button>
     </div>
     <div class="stack" style="margin-top:8px">
+      <button id="editMenuBtn" class="primary" disabled>編集メニューを開く</button>
       <button id="cutBtn" class="orange" disabled>選択範囲をカット</button>
       <button id="trimBtn" class="green" disabled>選択範囲だけ残す</button>
     </div>
@@ -261,6 +376,28 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
   </section>
 </main>
 
+<div class="popup-backdrop" id="editPopupBackdrop"></div>
+<div class="popup" id="editPopup" role="dialog" aria-modal="true" aria-labelledby="editPopupTitle">
+  <div class="popup-head">
+    <div>
+      <div class="popup-title" id="editPopupTitle">編集メニュー</div>
+      <div class="info" style="margin:2px 0 0">A/B範囲を見ながら、よく使う編集だけをまとめています。</div>
+    </div>
+    <button id="editPopupClose" class="popup-close" aria-label="閉じる">×</button>
+  </div>
+  <div class="popup-grid">
+    <button data-action="play">再生</button>
+    <button data-action="stop">停止</button>
+    <button data-action="restart">先頭へ</button>
+    <button data-action="setA">A：現在位置</button>
+    <button data-action="setB">B：現在位置</button>
+    <button data-action="cut" class="orange">選択範囲をカット</button>
+    <button data-action="trim" class="green">選択範囲だけ残す</button>
+    <button data-action="undo">元に戻す</button>
+    <button data-action="redo">やり直す</button>
+  </div>
+</div>
+
 <footer>Wave Cut - Simple audio cutter</footer>
 
 <script>
@@ -274,8 +411,17 @@ const ctx = canvas.getContext("2d");
 const cursorLabel = document.getElementById("cursorLabel");
 const startLabel = document.getElementById("startLabel");
 const endLabel = document.getElementById("endLabel");
+const startCard = document.getElementById("startCard");
+const endCard = document.getElementById("endCard");
+const selectionHint = document.getElementById("selectionHint");
 const zoomSelect = document.getElementById("zoomSelect");
 const viewScroll = document.getElementById("viewScroll");
+const recordBtn = document.getElementById("recordBtn");
+const clearMicBtn = document.getElementById("clearMicBtn");
+const micPill = document.getElementById("micPill");
+const micStatus = document.getElementById("micStatus");
+const micMeterFill = document.getElementById("micMeterFill");
+const recordingDot = document.getElementById("recordingDot");
 const playBtn = document.getElementById("playBtn");
 const stopBtn = document.getElementById("stopBtn");
 const restartBtn = document.getElementById("restartBtn");
@@ -283,6 +429,7 @@ const volumeSlider = document.getElementById("volumeSlider");
 const volumeLabel = document.getElementById("volumeLabel");
 const setStartBtn = document.getElementById("setStartBtn");
 const setEndBtn = document.getElementById("setEndBtn");
+const editMenuBtn = document.getElementById("editMenuBtn");
 const cutBtn = document.getElementById("cutBtn");
 const trimBtn = document.getElementById("trimBtn");
 const undoBtn = document.getElementById("undoBtn");
@@ -290,6 +437,9 @@ const redoBtn = document.getElementById("redoBtn");
 const saveWavBtn = document.getElementById("saveWavBtn");
 const saveMp3Btn = document.getElementById("saveMp3Btn");
 const exportStatus = document.getElementById("exportStatus");
+const editPopup = document.getElementById("editPopup");
+const editPopupBackdrop = document.getElementById("editPopupBackdrop");
+const editPopupClose = document.getElementById("editPopupClose");
 
 let audioContext = null;
 let buffer = null;
@@ -306,6 +456,12 @@ let playOffset = 0;
 let rafId = null;
 let isDragging = false;
 let dragStartTime = 0;
+let micStream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let micAnalyser = null;
+let micMeterData = null;
+let micMeterRaf = null;
 
 function ensureAudioContext(){
   if(!audioContext){
@@ -392,13 +548,25 @@ function drawWaveform(){
   if(a){
     const sx = timeToX(a.start);
     const ex = timeToX(a.end);
-    ctx.fillStyle = "rgba(79,140,255,.26)";
+    ctx.fillStyle = "rgba(2,6,23,.55)";
+    ctx.fillRect(0,0,Math.max(0,sx),h);
+    ctx.fillRect(Math.min(w,ex),0,Math.max(0,w-ex),h);
+    const selGradient = ctx.createLinearGradient(sx,0,ex,0);
+    selGradient.addColorStop(0,"rgba(53,224,161,.36)");
+    selGradient.addColorStop(1,"rgba(79,140,255,.36)");
+    ctx.fillStyle = selGradient;
     ctx.fillRect(sx,0,ex-sx,h);
     ctx.strokeStyle = "rgba(147,197,253,.9)";
     ctx.beginPath();
     ctx.moveTo(sx,0); ctx.lineTo(sx,h);
     ctx.moveTo(ex,0); ctx.lineTo(ex,h);
     ctx.stroke();
+    ctx.fillStyle = "rgba(15,23,42,.86)";
+    ctx.fillRect(Math.max(0,sx + 8), 8, Math.min(190, Math.max(84, ex - sx - 16)), 28);
+    ctx.fillStyle = "#e0f2fe";
+    ctx.font = `${12 * (window.devicePixelRatio || 1)}px system-ui`;
+    ctx.textAlign = "left";
+    ctx.fillText(`選択 ${formatTime(a.end - a.start)}`, Math.max(0,sx + 16), 27);
   }
 
   const cx = timeToX(cursorTime);
@@ -432,6 +600,8 @@ function normalizedSelection(){
 
 function setControlsEnabled(enabled){
   [playBtn, stopBtn, restartBtn, setStartBtn, setEndBtn, saveWavBtn, saveMp3Btn].forEach(btn=>btn.disabled = !enabled);
+  editMenuBtn.disabled = !enabled;
+  clearMicBtn.disabled = !enabled;
   viewScroll.disabled = !enabled || Number(zoomSelect.value) === 1;
   updateEditButtons();
 }
@@ -451,6 +621,13 @@ function updateLabels(){
   endLabel.textContent = selectionEnd === null ? "--:--.--" : formatTime(selectionEnd);
   const sel = normalizedSelection();
   selectionPill.textContent = sel ? `${formatTime(sel.start)} - ${formatTime(sel.end)}` : "\u672a\u9078\u629e";
+  selectionPill.style.color = sel ? "#bbf7d0" : "#cbd5e1";
+  selectionPill.style.borderColor = sel ? "rgba(53,224,161,.48)" : "rgba(255,255,255,.12)";
+  startCard.classList.toggle("active", selectionStart !== null);
+  endCard.classList.toggle("end-active", selectionEnd !== null);
+  selectionHint.textContent = sel
+    ? `選択中：${formatTime(sel.end - sel.start)} / A-B範囲が波形上で明るく表示されています。`
+    : "AとBを指定すると、選択範囲が波形上で明るく表示されます。";
   volumeLabel.textContent = `${volumeSlider.value}%`;
   if(buffer && cursorTime > buffer.duration) cursorTime = buffer.duration;
   setControlsEnabled(!!buffer);
@@ -480,11 +657,127 @@ function pushUndo(){
 
 function restoreState(state){
   stopPlayback();
-  buffer = cloneBuffer(state.buffer);
-  cursorTime = Math.min(state.cursorTime, buffer.duration);
+  buffer = state.buffer ? cloneBuffer(state.buffer) : null;
+  cursorTime = buffer ? Math.min(state.cursorTime, buffer.duration) : 0;
   selectionStart = state.selectionStart;
   selectionEnd = state.selectionEnd;
   updateLabels();
+}
+
+function setMicUi(recording, message){
+  recordBtn.textContent = recording ? "録音停止" : "録音開始";
+  recordBtn.classList.toggle("red", !recording);
+  recordBtn.classList.toggle("orange", recording);
+  micPill.textContent = recording ? "REC" : "OFF";
+  recordingDot.classList.toggle("on", recording);
+  if(message){
+    Array.from(micStatus.childNodes).forEach(node=>{
+      if(node.nodeType === Node.TEXT_NODE) node.remove();
+    });
+    micStatus.append(document.createTextNode(message));
+  }
+}
+
+function stopMicMeter(){
+  if(micMeterRaf) cancelAnimationFrame(micMeterRaf);
+  micMeterRaf = null;
+  micAnalyser = null;
+  micMeterData = null;
+  if(micMeterFill) micMeterFill.style.width = "0%";
+}
+
+function startMicMeter(stream){
+  stopMicMeter();
+  const ctx2 = ensureAudioContext();
+  const source = ctx2.createMediaStreamSource(stream);
+  micAnalyser = ctx2.createAnalyser();
+  micAnalyser.fftSize = 1024;
+  micMeterData = new Uint8Array(micAnalyser.fftSize);
+  source.connect(micAnalyser);
+  const tick = ()=>{
+    if(!micAnalyser || !micMeterData) return;
+    micAnalyser.getByteTimeDomainData(micMeterData);
+    let peak = 0;
+    for(let i=0; i<micMeterData.length; i++){
+      peak = Math.max(peak, Math.abs(micMeterData[i] - 128) / 128);
+    }
+    micMeterFill.style.width = `${Math.min(100, Math.round(peak * 160))}%`;
+    micMeterRaf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+async function startRecording(){
+  const ctx2 = ensureAudioContext();
+  await ctx2.resume();
+  stopPlayback();
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(micStream);
+    mediaRecorder.ondataavailable = e=>{
+      if(e.data && e.data.size > 0) recordedChunks.push(e.data);
+    };
+    mediaRecorder.onstop = async()=>{
+      stopMicMeter();
+      micStream?.getTracks().forEach(track=>track.stop());
+      micStream = null;
+      setMicUi(false, "録音を読み込み中...");
+      try{
+        const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+        const decoded = await ctx2.decodeAudioData(await blob.arrayBuffer());
+        if(buffer) pushUndo();
+        buffer = decoded;
+        originalName = "mic-recording";
+        cursorTime = 0;
+        selectionStart = null;
+        selectionEnd = null;
+        fileNameEl.textContent = "マイク録音";
+        statusEl.textContent = `録音完了：${formatTime(buffer.duration)}`;
+        setMicUi(false, "録音を1トラックに読み込みました。");
+        clearMicBtn.disabled = false;
+        updateLabels();
+      }catch(err){
+        console.error(err);
+        setMicUi(false, "録音データの読み込みに失敗しました。");
+      }
+    };
+    mediaRecorder.start();
+    startMicMeter(micStream);
+    setMicUi(true, "録音中...");
+  }catch(err){
+    console.error(err);
+    setMicUi(false, "マイクを使用できませんでした。ブラウザの許可を確認してください。");
+  }
+}
+
+function stopRecording(){
+  if(mediaRecorder && mediaRecorder.state !== "inactive"){
+    mediaRecorder.stop();
+  }
+}
+
+function openEditPopup(){
+  if(!buffer) return;
+  editPopup.classList.add("show");
+  editPopupBackdrop.classList.add("show");
+}
+
+function closeEditPopup(){
+  editPopup.classList.remove("show");
+  editPopupBackdrop.classList.remove("show");
+}
+
+function runEditAction(action){
+  if(action === "play") startPlayback();
+  if(action === "stop"){ stopPlayback(); updateLabels(); }
+  if(action === "restart"){ stopPlayback(); cursorTime = 0; updateLabels(); }
+  if(action === "setA"){ selectionStart = cursorTime; if(selectionEnd !== null && selectionEnd < selectionStart) selectionEnd = null; updateLabels(); }
+  if(action === "setB"){ selectionEnd = cursorTime; updateLabels(); }
+  if(action === "cut") applyEdit("cut");
+  if(action === "trim") applyEdit("trim");
+  if(action === "undo") undoEdit();
+  if(action === "redo") redoEdit();
 }
 
 async function loadFile(file){
@@ -598,6 +891,20 @@ function applyEdit(mode){
   updateLabels();
 }
 
+function undoEdit(){
+  if(!undoStack.length) return;
+  redoStack.push({ buffer: buffer ? cloneBuffer(buffer) : null, cursorTime, selectionStart, selectionEnd });
+  restoreState(undoStack.pop());
+  statusEl.textContent = "元に戻しました。";
+}
+
+function redoEdit(){
+  if(!redoStack.length) return;
+  undoStack.push({ buffer: buffer ? cloneBuffer(buffer) : null, cursorTime, selectionStart, selectionEnd });
+  restoreState(redoStack.pop());
+  statusEl.textContent = "やり直しました。";
+}
+
 function bufferToWavBlob(audioBuffer){
   const channels = audioBuffer.numberOfChannels;
   const sampleRate = audioBuffer.sampleRate;
@@ -708,20 +1015,33 @@ stopBtn.onclick = ()=>{ stopPlayback(); updateLabels(); };
 restartBtn.onclick = ()=>{ stopPlayback(); cursorTime = 0; updateLabels(); };
 setStartBtn.onclick = ()=>{ selectionStart = cursorTime; if(selectionEnd !== null && selectionEnd < selectionStart) selectionEnd = null; updateLabels(); };
 setEndBtn.onclick = ()=>{ selectionEnd = cursorTime; updateLabels(); };
+recordBtn.onclick = ()=>{ mediaRecorder && mediaRecorder.state === "recording" ? stopRecording() : startRecording(); };
+clearMicBtn.onclick = ()=>{
+  if(!buffer) return;
+  pushUndo();
+  stopPlayback();
+  buffer = null;
+  cursorTime = 0;
+  selectionStart = null;
+  selectionEnd = null;
+  fileNameEl.textContent = "";
+  statusEl.textContent = "録音を消しました。ファイル読み込みか録音をしてください。";
+  clearMicBtn.disabled = true;
+  updateLabels();
+};
+editMenuBtn.onclick = openEditPopup;
 cutBtn.onclick = ()=>applyEdit("cut");
 trimBtn.onclick = ()=>applyEdit("trim");
-undoBtn.onclick = ()=>{
-  if(!undoStack.length) return;
-  redoStack.push({ buffer: cloneBuffer(buffer), cursorTime, selectionStart, selectionEnd });
-  restoreState(undoStack.pop());
-  statusEl.textContent = "元に戻しました。";
-};
-redoBtn.onclick = ()=>{
-  if(!redoStack.length) return;
-  undoStack.push({ buffer: cloneBuffer(buffer), cursorTime, selectionStart, selectionEnd });
-  restoreState(redoStack.pop());
-  statusEl.textContent = "やり直しました。";
-};
+undoBtn.onclick = undoEdit;
+redoBtn.onclick = redoEdit;
+editPopupClose.onclick = closeEditPopup;
+editPopupBackdrop.onclick = closeEditPopup;
+editPopup.addEventListener("click", e=>{
+  const btn = e.target.closest("button[data-action]");
+  if(!btn) return;
+  runEditAction(btn.dataset.action);
+  if(["cut","trim","undo","redo"].includes(btn.dataset.action)) closeEditPopup();
+});
 zoomSelect.onchange = ()=>{
   viewScroll.disabled = !buffer || Number(zoomSelect.value) === 1;
   if(Number(zoomSelect.value) === 1) viewScroll.value = 0;
