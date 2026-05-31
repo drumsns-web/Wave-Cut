@@ -776,12 +776,12 @@ audio{width:100%;margin:8px 0}
 .track-edit-popup-backdrop.open{display:block;}
 .track-edit-popup{
   position:fixed;
-  top:auto;
-  bottom:max(10px, env(safe-area-inset-bottom));
+  top:50%;
+  bottom:auto;
   left:50%;
-  transform:translateX(-50%);
+  transform:translate(-50%,-50%);
   width:min(520px,calc(100% - 24px));
-  max-height:min(58dvh, 520px);
+  max-height:min(74dvh, 620px);
   overflow:auto;
   overscroll-behavior:contain;
   z-index:981;
@@ -864,10 +864,10 @@ audio{width:100%;margin:8px 0}
 }
 @media (max-width:520px){
   .track-edit-popup{
-    top:auto;
-    bottom:max(8px, env(safe-area-inset-bottom));
+    top:50%;
+    bottom:auto;
     width:calc(100% - 16px);
-    max-height:62dvh;
+    max-height:76dvh;
     padding:14px 12px 18px;
   }
   .track-edit-popup-grid{grid-template-columns:1fr;}
@@ -7404,10 +7404,10 @@ function positionTrackEditPopup(anchorEl, mode="track"){
   popup.style.position = "fixed";
   popup.style.width = `${popupWidth}px`;
   popup.style.left = "50%";
-  popup.style.top = "auto";
-  popup.style.bottom = "max(10px, env(safe-area-inset-bottom))";
-  popup.style.transform = "translateX(-50%)";
-  popup.style.maxHeight = "min(58dvh, 520px)";
+  popup.style.top = "50%";
+  popup.style.bottom = "auto";
+  popup.style.transform = "translate(-50%,-50%)";
+  popup.style.maxHeight = "min(74dvh, 620px)";
 }
 
 function refreshTrackEditPopupButtons(track){
