@@ -197,6 +197,38 @@ input[type="range"]{width:100%;accent-color:var(--green)}
   background:linear-gradient(90deg,#35e0a1,#f59e0b,#ef4444);
   transition:width .08s linear;
 }
+.mic-controls{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin-bottom:8px;
+}
+.mic-device-row{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+  margin-bottom:8px;
+}
+.mic-device-row button{
+  width:auto;
+  min-width:96px;
+  min-height:44px;
+  padding:0 12px;
+}
+.gain-row{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+  align-items:center;
+  margin-top:10px;
+}
+.gain-row button{
+  width:58px;
+  min-height:38px;
+  padding:0;
+  border-radius:12px;
+  font-size:13px;
+}
 .recording-dot{
   display:inline-block;
   width:9px;
@@ -300,11 +332,26 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
 
   <section class="card">
     <p class="section-title">Mic <span class="pill" id="micPill">OFF</span></p>
+    <div class="mic-device-row">
+      <select id="micSelect" aria-label="マイクデバイス"></select>
+      <button id="refreshMicBtn">更新</button>
+    </div>
+    <div class="mic-controls">
+      <button id="micOnBtn" class="green">マイクON</button>
+      <button id="micOffBtn" class="red" disabled>マイクOFF</button>
+    </div>
     <div class="grid2">
       <button id="recordBtn" class="red">録音開始</button>
       <button id="clearMicBtn" disabled>音源を消す</button>
     </div>
     <div class="meter"><div class="meter-fill" id="micMeterFill"></div></div>
+    <div class="gain-row">
+      <div>
+        <label for="micGainSlider">マイクゲイン：<span id="micGainLabel">0 dB</span></label>
+        <input id="micGainSlider" type="range" min="-12" max="24" step="0.5" value="0">
+      </div>
+      <button id="micGainReset">0dB</button>
+    </div>
     <div class="info" id="micStatus"><span class="recording-dot" id="recordingDot"></span>マイク録音も1トラックとして読み込めます。</div>
   </section>
 
@@ -416,12 +463,19 @@ const endCard = document.getElementById("endCard");
 const selectionHint = document.getElementById("selectionHint");
 const zoomSelect = document.getElementById("zoomSelect");
 const viewScroll = document.getElementById("viewScroll");
+const micSelect = document.getElementById("micSelect");
+const refreshMicBtn = document.getElementById("refreshMicBtn");
+const micOnBtn = document.getElementById("micOnBtn");
+const micOffBtn = document.getElementById("micOffBtn");
 const recordBtn = document.getElementById("recordBtn");
 const clearMicBtn = document.getElementById("clearMicBtn");
 const micPill = document.getElementById("micPill");
 const micStatus = document.getElementById("micStatus");
 const micMeterFill = document.getElementById("micMeterFill");
 const recordingDot = document.getElementById("recordingDot");
+const micGainSlider = document.getElementById("micGainSlider");
+const micGainLabel = document.getElementById("micGainLabel");
+const micGainReset = document.getElementById("micGainReset");
 const playBtn = document.getElementById("playBtn");
 const stopBtn = document.getElementById("stopBtn");
 const restartBtn = document.getElementById("restartBtn");
@@ -457,11 +511,15 @@ let rafId = null;
 let isDragging = false;
 let dragStartTime = 0;
 let micStream = null;
+let micRawSource = null;
+let micGainNode = null;
+let micDestination = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let micAnalyser = null;
 let micMeterData = null;
 let micMeterRaf = null;
+let micMeterSource = null;
 
 function ensureAudioContext(){
   if(!audioContext){
@@ -664,11 +722,27 @@ function restoreState(state){
   updateLabels();
 }
 
+function micGainLinear(){
+  const db = Number(micGainSlider.value || 0);
+  return Math.pow(10, db / 20);
+}
+
+function updateMicGainLabel(){
+  const db = Number(micGainSlider.value || 0);
+  micGainLabel.textContent = `${db > 0 ? "+" : ""}${db} dB`;
+  if(micGainNode) micGainNode.gain.value = micGainLinear();
+}
+
 function setMicUi(recording, message){
+  const micOn = !!micStream;
   recordBtn.textContent = recording ? "録音停止" : "録音開始";
   recordBtn.classList.toggle("red", !recording);
   recordBtn.classList.toggle("orange", recording);
-  micPill.textContent = recording ? "REC" : "OFF";
+  micPill.textContent = recording ? "REC" : (micOn ? "ON" : "OFF");
+  micOnBtn.disabled = micOn;
+  micOffBtn.disabled = !micOn || recording;
+  micSelect.disabled = recording || micOn;
+  refreshMicBtn.disabled = recording;
   recordingDot.classList.toggle("on", recording);
   if(message){
     Array.from(micStatus.childNodes).forEach(node=>{
@@ -681,19 +755,21 @@ function setMicUi(recording, message){
 function stopMicMeter(){
   if(micMeterRaf) cancelAnimationFrame(micMeterRaf);
   micMeterRaf = null;
+  try{ if(micMeterSource && micAnalyser) micMeterSource.disconnect(micAnalyser); }catch(e){}
+  micMeterSource = null;
   micAnalyser = null;
   micMeterData = null;
   if(micMeterFill) micMeterFill.style.width = "0%";
 }
 
-function startMicMeter(stream){
+function startMicMeterFromNode(node){
   stopMicMeter();
   const ctx2 = ensureAudioContext();
-  const source = ctx2.createMediaStreamSource(stream);
   micAnalyser = ctx2.createAnalyser();
   micAnalyser.fftSize = 1024;
   micMeterData = new Uint8Array(micAnalyser.fftSize);
-  source.connect(micAnalyser);
+  node.connect(micAnalyser);
+  micMeterSource = node;
   const tick = ()=>{
     if(!micAnalyser || !micMeterData) return;
     micAnalyser.getByteTimeDomainData(micMeterData);
@@ -707,21 +783,86 @@ function startMicMeter(stream){
   tick();
 }
 
+async function loadMicDevices(){
+  if(!navigator.mediaDevices?.enumerateDevices){
+    setMicUi(false, "このブラウザではマイク一覧を取得できません。");
+    return;
+  }
+  try{
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter(device=>device.kind === "audioinput");
+    const current = micSelect.value;
+    micSelect.innerHTML = "";
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = "既定のマイク";
+    micSelect.appendChild(auto);
+    inputs.forEach((device, index)=>{
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `マイク ${index + 1}`;
+      micSelect.appendChild(option);
+    });
+    if([...micSelect.options].some(option=>option.value === current)){
+      micSelect.value = current;
+    }
+  }catch(err){
+    console.error(err);
+    setMicUi(false, "マイク一覧の取得に失敗しました。");
+  }
+}
+
+function micConstraints(){
+  const deviceId = micSelect.value;
+  return {
+    audio: deviceId ? { deviceId:{ exact:deviceId }, echoCancellation:false, noiseSuppression:false, autoGainControl:false } : { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+  };
+}
+
+async function turnMicOn(message = "マイク：ON"){
+  if(micStream) return micStream;
+  const ctx2 = ensureAudioContext();
+  await ctx2.resume();
+  micStream = await navigator.mediaDevices.getUserMedia(micConstraints());
+  micRawSource = ctx2.createMediaStreamSource(micStream);
+  micGainNode = ctx2.createGain();
+  micGainNode.gain.value = micGainLinear();
+  micDestination = ctx2.createMediaStreamDestination();
+  micRawSource.connect(micGainNode);
+  micGainNode.connect(micDestination);
+  startMicMeterFromNode(micGainNode);
+  await loadMicDevices();
+  setMicUi(false, message);
+  return micStream;
+}
+
+function turnMicOff(message = "マイク：OFF"){
+  if(mediaRecorder && mediaRecorder.state === "recording") return;
+  stopMicMeter();
+  try{ if(micRawSource) micRawSource.disconnect(); }catch(e){}
+  try{ if(micGainNode) micGainNode.disconnect(); }catch(e){}
+  try{ if(micDestination) micDestination.disconnect(); }catch(e){}
+  micStream?.getTracks().forEach(track=>track.stop());
+  micStream = null;
+  micRawSource = null;
+  micGainNode = null;
+  micDestination = null;
+  setMicUi(false, message);
+}
+
 async function startRecording(){
   const ctx2 = ensureAudioContext();
   await ctx2.resume();
   stopPlayback();
   try{
-    micStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+    await turnMicOn("マイク：ON / 録音準備完了");
     recordedChunks = [];
-    mediaRecorder = new MediaRecorder(micStream);
+    const streamForRecording = micDestination ? micDestination.stream : micStream;
+    mediaRecorder = new MediaRecorder(streamForRecording);
     mediaRecorder.ondataavailable = e=>{
       if(e.data && e.data.size > 0) recordedChunks.push(e.data);
     };
     mediaRecorder.onstop = async()=>{
-      stopMicMeter();
-      micStream?.getTracks().forEach(track=>track.stop());
-      micStream = null;
       setMicUi(false, "録音を読み込み中...");
       try{
         const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
@@ -743,7 +884,6 @@ async function startRecording(){
       }
     };
     mediaRecorder.start();
-    startMicMeter(micStream);
     setMicUi(true, "録音中...");
   }catch(err){
     console.error(err);
@@ -1015,6 +1155,21 @@ stopBtn.onclick = ()=>{ stopPlayback(); updateLabels(); };
 restartBtn.onclick = ()=>{ stopPlayback(); cursorTime = 0; updateLabels(); };
 setStartBtn.onclick = ()=>{ selectionStart = cursorTime; if(selectionEnd !== null && selectionEnd < selectionStart) selectionEnd = null; updateLabels(); };
 setEndBtn.onclick = ()=>{ selectionEnd = cursorTime; updateLabels(); };
+micOnBtn.onclick = async()=>{
+  try{
+    await turnMicOn("マイク：ON");
+  }catch(err){
+    console.error(err);
+    setMicUi(false, "マイクをONにできませんでした。ブラウザの許可を確認してください。");
+  }
+};
+micOffBtn.onclick = ()=>turnMicOff("マイク：OFF");
+refreshMicBtn.onclick = async()=>loadMicDevices();
+micGainSlider.oninput = updateMicGainLabel;
+micGainReset.onclick = ()=>{
+  micGainSlider.value = 0;
+  updateMicGainLabel();
+};
 recordBtn.onclick = ()=>{ mediaRecorder && mediaRecorder.state === "recording" ? stopRecording() : startRecording(); };
 clearMicBtn.onclick = ()=>{
   if(!buffer) return;
@@ -1071,6 +1226,9 @@ saveMp3Btn.onclick = ()=>{
 
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
+updateMicGainLabel();
+loadMicDevices();
+setMicUi(false, "マイク録音も1トラックとして読み込めます。");
 updateLabels();
 </script>
 </body>
