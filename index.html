@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Wave Cut</title>
 <link rel="icon" type="image/png" href="icon.png">
 <link rel="apple-touch-icon" href="icon.png">
@@ -35,6 +35,9 @@ body{
     radial-gradient(circle at 85% 0%, rgba(79,140,255,.20), transparent 28%),
     linear-gradient(180deg,#07101f 0%,#070b14 60%,#05070d 100%);
   color:var(--text);
+}
+html,body{
+  -webkit-text-size-adjust:100%;
 }
 header{
   padding:22px 16px 12px;
@@ -2519,13 +2522,21 @@ viewScroll.oninput = ()=>{
 };
 
 function resizeCanvas(){
-  canvas.width = canvas.clientWidth * devicePixelRatio;
-  canvas.height = canvas.clientHeight * devicePixelRatio;
-  timeRulerCanvas.width = timeRulerCanvas.clientWidth * devicePixelRatio;
-  timeRulerCanvas.height = timeRulerCanvas.clientHeight * devicePixelRatio;
+  const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const setCanvasSize = (el, fallbackW=320, fallbackH=160)=>{
+    if(!el) return;
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    const cssW = Math.max(1, Math.round((rect && rect.width) || el.clientWidth || fallbackW));
+    const cssH = Math.max(1, Math.round((rect && rect.height) || el.clientHeight || fallbackH));
+    const nextW = Math.max(1, Math.round(cssW * dpr));
+    const nextH = Math.max(1, Math.round(cssH * dpr));
+    if(el.width !== nextW) el.width = nextW;
+    if(el.height !== nextH) el.height = nextH;
+  };
+  setCanvasSize(canvas, 640, 190);
+  setCanvasSize(timeRulerCanvas, 640, 42);
   trackCanvasList.forEach(c=>{
-    c.width = c.clientWidth * devicePixelRatio;
-    c.height = c.clientHeight * devicePixelRatio;
+    setCanvasSize(c, 640, 110);
   });
 }
 resizeCanvas();
@@ -6155,6 +6166,22 @@ canvas.addEventListener("touchend", e=>{
 
 ["gesturestart","gesturechange","gestureend"].forEach(type=>{
   canvas.addEventListener(type, e=>e.preventDefault(), {passive:false});
+  document.addEventListener(type, e=>e.preventDefault(), {passive:false});
+});
+
+document.addEventListener("touchmove", e=>{
+  if(e.touches && e.touches.length > 1){
+    e.preventDefault();
+  }
+}, {passive:false});
+
+document.querySelectorAll("canvas").forEach(c=>{
+  c.addEventListener("touchstart", e=>{
+    if(e.touches && e.touches.length > 1) e.preventDefault();
+  }, {passive:false});
+  c.addEventListener("touchmove", e=>{
+    if(e.touches && e.touches.length > 1) e.preventDefault();
+  }, {passive:false});
 });
 
 setStartBtn.onclick=()=>{
