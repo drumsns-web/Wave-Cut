@@ -2390,10 +2390,19 @@ function invalidateWaveformCache(){
 }
 
 function getViewportEnd(){
+  normalizeZoomLevel();
   return Math.min(1, viewportStart + (1 / zoomLevel));
 }
 
+function normalizeZoomLevel(){
+  zoomLevel = Number(zoomLevel);
+  if(!Number.isFinite(zoomLevel) || zoomLevel < 1) zoomLevel = 1;
+  if(zoomLevel > 64) zoomLevel = 64;
+  return zoomLevel;
+}
+
 function clampViewport(){
+  normalizeZoomLevel();
   const maxStart = Math.max(0, 1 - (1 / zoomLevel));
   viewportStart = Math.min(maxStart, Math.max(0, viewportStart));
   viewScroll.value = maxStart === 0 ? 0 : Math.round((viewportStart / maxStart) * 1000);
@@ -2412,6 +2421,7 @@ function updateViewPositionLabel(){
 }
 
 function centerViewportOnPlayhead(){
+  normalizeZoomLevel();
   if(zoomLevel <= 1){
     viewportStart = 0;
   }else{
@@ -2429,6 +2439,7 @@ zoomSelect.onchange = ()=>{
 };
 
 viewScroll.oninput = ()=>{
+  normalizeZoomLevel();
   const maxStart = Math.max(0, 1 - (1 / zoomLevel));
   viewportStart = maxStart * (Number(viewScroll.value) / 1000);
   invalidateWaveformCache();
@@ -4526,10 +4537,22 @@ resetFxBtn.onclick = async()=>{
     `Gain / Reverb / Delay / Double / Radio Voice はすべて0です。`;
 };
 
-selectMainBtn.onclick=()=>{activeBufferType="main"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
-selectTakeBtn.onclick=()=>{activeBufferType="take"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
+function activateWaveEditTrack(track){
+  activeBufferType = track;
+  const st = (typeof getTrackState === "function") ? getTrackState(track) : null;
+  selectedStart = st ? st.selStart : null;
+  selectedEnd = st ? st.selEnd : null;
+  playheadRatio = st ? (st.playheadRatio || 0) : 0;
+  invalidateWaveformCache();
+  resetFx();
+  refreshPreview();
+  updateButtons();
+}
+
+selectMainBtn.onclick=()=>activateWaveEditTrack("main");
+selectTakeBtn.onclick=()=>activateWaveEditTrack("take");
 if(selectChorusBtn){
-  selectChorusBtn.onclick=()=>{activeBufferType="chorus"; selectedStart=null; selectedEnd=null; playheadRatio=0; invalidateWaveformCache(); resetFx(); refreshPreview(); updateButtons();};
+  selectChorusBtn.onclick=()=>activateWaveEditTrack("chorus");
 }
 
 prependTakeBtn.onclick=()=>{
@@ -4793,6 +4816,7 @@ function _syncTrackStateFromWaveEdit(){
 
 function getWaveformPeaks(buffer, width){
   if(!buffer) return null;
+  normalizeZoomLevel();
 
   const startRatio = viewportStart;
   const endRatio = getViewportEnd();
@@ -5618,7 +5642,53 @@ function drawStackedTimelines(){
   drawMiniTrackWave(trackCanvasChorus, "chorus", "#f59e0b");
 }
 
+function syncActiveTrackStateFromWaveEdit(){
+  const st = (typeof getTrackState === "function") ? getTrackState(activeBufferType) : null;
+  if(!st) return;
+  st.playheadRatio = playheadRatio;
+  st.selStart = selectedStart;
+  st.selEnd = selectedEnd;
+}
+
+function drawWaveEditClipOverlay(buffer, w, h, visibleStart, visibleEnd){
+  if(!buffer || !buffer.duration || typeof trackClips === "undefined") return;
+  const clips = trackClips[activeBufferType] || [];
+  const st = (typeof getTrackState === "function") ? getTrackState(activeBufferType) : null;
+  const viewStartSec = buffer.duration * visibleStart;
+  const viewEndSec = buffer.duration * visibleEnd;
+  const viewDur = Math.max(0.001, viewEndSec - viewStartSec);
+
+  ctx.save();
+  clips.forEach(cl=>{
+    if(!cl || !cl.buffer) return;
+    const clipStart = cl.startSec || 0;
+    const clipEnd = clipStart + cl.buffer.duration;
+    if(clipEnd < viewStartSec || clipStart > viewEndSec) return;
+    const x1 = Math.max(0, ((clipStart - viewStartSec) / viewDur) * w);
+    const x2 = Math.min(w, ((clipEnd - viewStartSec) / viewDur) * w);
+    const selected = st && st.selectedClipId === cl.id;
+
+    ctx.fillStyle = selected ? "rgba(255,51,85,.22)" : "rgba(255,255,255,.045)";
+    ctx.fillRect(x1, 0, Math.max(1, x2 - x1), h);
+    ctx.strokeStyle = selected ? "#ff3355" : "rgba(248,250,252,.35)";
+    ctx.lineWidth = selected ? 2.5 * devicePixelRatio : 1.2 * devicePixelRatio;
+    ctx.strokeRect(x1 + 1, 1, Math.max(1, x2 - x1 - 2), Math.max(1, h - 2));
+
+    ctx.fillStyle = selected ? "#ff3355" : "rgba(248,250,252,.7)";
+    [x1, x2].forEach(x=>{
+      if(x >= 0 && x <= w){
+        ctx.beginPath();
+        ctx.arc(x, h * .12, 4 * devicePixelRatio, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  });
+  ctx.restore();
+}
+
 function drawWaveform(buffer){
+  normalizeZoomLevel();
+  clampViewport();
   drawTimeRuler(buffer);
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.fillStyle="#020617";
@@ -5654,44 +5724,75 @@ function drawWaveform(buffer){
 
     const visibleStart = viewportStart;
     const visibleEnd = getViewportEnd();
+    const visibleRange = Math.max(0.000001, visibleEnd - visibleStart);
+    drawWaveEditClipOverlay(buffer, w, h, visibleStart, visibleEnd);
 
-    if(selectedStart!==null && selectedEnd!==null && selectedEnd > selectedStart){
-      const clippedStart = Math.max(selectedStart, visibleStart);
-      const clippedEnd = Math.min(selectedEnd, visibleEnd);
+    if(selectedStart!==null && selectedEnd!==null && Math.abs(selectedEnd - selectedStart) > 0.005){
+      const rangeStart = Math.min(selectedStart, selectedEnd);
+      const rangeEnd = Math.max(selectedStart, selectedEnd);
+      const clippedStart = Math.max(rangeStart, visibleStart);
+      const clippedEnd = Math.min(rangeEnd, visibleEnd);
       if(clippedEnd > clippedStart){
-        const x1=((clippedStart-visibleStart)/(visibleEnd-visibleStart))*w;
-        const x2=((clippedEnd-visibleStart)/(visibleEnd-visibleStart))*w;
-        ctx.fillStyle="rgba(79,140,255,.30)";
+        const x1=((clippedStart-visibleStart)/visibleRange)*w;
+        const x2=((clippedEnd-visibleStart)/visibleRange)*w;
+        ctx.fillStyle="rgba(255,51,85,.24)";
         ctx.fillRect(x1,0,x2-x1,h);
       }
     }
 
     if(selectedStart!==null && selectedStart>=visibleStart && selectedStart<=visibleEnd){
-      const sx = ((selectedStart-visibleStart)/(visibleEnd-visibleStart)) * w;
-      ctx.strokeStyle = "#35e0a1";
+      const sx = ((selectedStart-visibleStart)/visibleRange) * w;
+      ctx.strokeStyle = "rgba(2,6,23,.9)";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(sx, 0);
+      ctx.lineTo(sx, h);
+      ctx.stroke();
+      ctx.strokeStyle = "#ff3355";
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(sx, 0);
       ctx.lineTo(sx, h);
       ctx.stroke();
+      ctx.fillStyle = "#ff3355";
+      ctx.fillRect(sx - 10 * devicePixelRatio, 4 * devicePixelRatio, 20 * devicePixelRatio, 18 * devicePixelRatio);
+      ctx.fillStyle = "#fff";
+      ctx.font = `${12 * devicePixelRatio}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("A", sx, 13 * devicePixelRatio);
     }
 
     if(selectedEnd!==null && selectedEnd>=visibleStart && selectedEnd<=visibleEnd){
-      const ex = ((selectedEnd-visibleStart)/(visibleEnd-visibleStart)) * w;
-      ctx.strokeStyle = "#4f8cff";
+      const ex = ((selectedEnd-visibleStart)/visibleRange) * w;
+      ctx.strokeStyle = "rgba(2,6,23,.9)";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(ex, 0);
+      ctx.lineTo(ex, h);
+      ctx.stroke();
+      ctx.strokeStyle = "#ff7a18";
       ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(ex, 0);
       ctx.lineTo(ex, h);
       ctx.stroke();
+      ctx.fillStyle = "#ff7a18";
+      ctx.fillRect(ex - 10 * devicePixelRatio, 26 * devicePixelRatio, 20 * devicePixelRatio, 18 * devicePixelRatio);
+      ctx.fillStyle = "#111827";
+      ctx.font = `${12 * devicePixelRatio}px system-ui, sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("B", ex, 35 * devicePixelRatio);
     }
   }
 
   const visibleStart = viewportStart;
   const visibleEnd = getViewportEnd();
+  const visibleRange = Math.max(0.000001, visibleEnd - visibleStart);
 
   if(playheadRatio>=visibleStart && playheadRatio<=visibleEnd){
-    const px = ((playheadRatio-visibleStart)/(visibleEnd-visibleStart)) * w;
+    const px = ((playheadRatio-visibleStart)/visibleRange) * w;
     ctx.strokeStyle = "#f8fafc";
     ctx.lineWidth = 2.5;
     ctx.beginPath();
@@ -5713,12 +5814,15 @@ let beforePointerStart=null;
 let beforePointerEnd=null;
 
 function refreshSelectionUi(){
+  syncActiveTrackStateFromWaveEdit();
   drawWaveform(activeBuffer());
   updateTimeLabel(activeBuffer());
   updateButtons();
+  drawStackedTimelines();
 }
 
 canvas.addEventListener("pointerdown",e=>{
+  if(wavePinchActive) return;
   if(!activeBuffer()) return;
   isDragging=true;
   beforePointerStart = selectedStart;
@@ -5730,12 +5834,14 @@ canvas.addEventListener("pointerdown",e=>{
 });
 
 canvas.addEventListener("pointermove",e=>{
+  if(wavePinchActive) return;
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
   refreshSelectionUi();
 });
 
 canvas.addEventListener("pointerup",e=>{
+  if(wavePinchActive) return;
   if(!activeBuffer()) return;
   const upRatio = getCanvasRatio(e);
   const moved = Math.abs(upRatio - pointerDownRatio);
@@ -5759,18 +5865,101 @@ canvas.addEventListener("pointercancel",()=>{
 });
 
 function getCanvasRatio(e){
+  normalizeZoomLevel();
   const rect=canvas.getBoundingClientRect();
+  if(!rect.width) return Math.max(0, Math.min(1, viewportStart));
   const xRatio = Math.min(1,Math.max(0,(e.clientX-rect.left)/rect.width));
-  return Math.min(1, Math.max(0, viewportStart + xRatio * (1 / zoomLevel)));
+  return snapWaveRatioToAB(Math.min(1, Math.max(0, viewportStart + xRatio * (1 / zoomLevel))));
 }
+
+function snapWaveRatioToAB(r){
+  const rect = canvas.getBoundingClientRect();
+  const threshold = Math.max(0.003, Math.min(0.025, (14 / Math.max(1, rect.width)) * (1 / normalizeZoomLevel())));
+  let best = r;
+  let bestDist = threshold;
+  if(selectedStart !== null){
+    const d = Math.abs(r - selectedStart);
+    if(d <= bestDist){ best = selectedStart; bestDist = d; }
+  }
+  if(selectedEnd !== null){
+    const d = Math.abs(r - selectedEnd);
+    if(d <= bestDist){ best = selectedEnd; }
+  }
+  return best;
+}
+
+let wavePinchActive = false;
+let wavePinchState = null;
+
+function touchDistance(e){
+  const a = e.touches[0], b = e.touches[1];
+  return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+}
+
+function touchCenterRatio(e){
+  const rect = canvas.getBoundingClientRect();
+  if(!rect.width) return playheadRatio || 0;
+  const x = ((e.touches[0].clientX + e.touches[1].clientX) / 2) - rect.left;
+  const xRatio = Math.max(0, Math.min(1, x / rect.width));
+  return Math.max(0, Math.min(1, viewportStart + xRatio * (1 / normalizeZoomLevel())));
+}
+
+function setWaveZoomAround(nextZoom, anchorRatio){
+  const oldZoom = normalizeZoomLevel();
+  const oldWidth = 1 / oldZoom;
+  zoomLevel = Math.max(1, Math.min(64, Number(nextZoom) || 1));
+  const newWidth = 1 / zoomLevel;
+  const safeAnchor = Math.max(0, Math.min(1, anchorRatio));
+  viewportStart = safeAnchor - ((safeAnchor - viewportStart) * (newWidth / oldWidth));
+  clampViewport();
+  invalidateWaveformCache();
+  drawWaveform(activeBuffer());
+  updateTimeLabel(activeBuffer());
+  updateButtons();
+}
+
+canvas.addEventListener("touchstart", e=>{
+  if(e.touches.length === 2 && activeBuffer()){
+    e.preventDefault();
+    isDragging = false;
+    wavePinchActive = true;
+    wavePinchState = {
+      distance: Math.max(1, touchDistance(e)),
+      zoom: normalizeZoomLevel(),
+      anchor: touchCenterRatio(e)
+    };
+  }
+}, {passive:false});
+
+canvas.addEventListener("touchmove", e=>{
+  if(wavePinchActive && wavePinchState && e.touches.length === 2){
+    e.preventDefault();
+    const ratio = Math.max(0.25, Math.min(4, touchDistance(e) / wavePinchState.distance));
+    setWaveZoomAround(wavePinchState.zoom * ratio, wavePinchState.anchor);
+  }
+}, {passive:false});
+
+canvas.addEventListener("touchend", e=>{
+  if(e.touches.length < 2){
+    wavePinchActive = false;
+    wavePinchState = null;
+  }
+}, {passive:false});
+
+["gesturestart","gesturechange","gestureend"].forEach(type=>{
+  canvas.addEventListener(type, e=>e.preventDefault(), {passive:false});
+});
 
 setStartBtn.onclick=()=>{
   if(!activeBuffer()) return;
   selectedStart = playheadRatio;
 
-  // 終了点が未設定、または開始点より前にある場合は、まだ範囲選択として塗らない
-  if(selectedEnd !== null && selectedEnd <= selectedStart){
-    selectedEnd = null;
+  if(selectedEnd !== null && selectedStart >= selectedEnd){
+    alert("A地点はB地点より前に設定してください。");
+    selectedStart = null;
+    const st = getTrackState(activeBufferType);
+    if(st) selectedStart = st.selStart;
+    return;
   }
 
   refreshSelectionUi();
@@ -5780,13 +5969,12 @@ setEndBtn.onclick=()=>{
   if(!activeBuffer()) return;
   selectedEnd = playheadRatio;
 
-  // 開始点が未設定、または終了点より後ろにある場合は、開始点は消さずに終了点だけ未確定扱いにする
-  if(selectedStart === null){
-    selectedStart = selectedEnd;
+  if(selectedStart !== null && selectedEnd <= selectedStart){
+    alert("B地点はA地点より後ろに設定してください。");
     selectedEnd = null;
-  }else if(selectedEnd <= selectedStart){
-    alert("終了点は開始点より後ろに設定してください。");
-    selectedEnd = null;
+    const st = getTrackState(activeBufferType);
+    if(st) selectedEnd = st.selEnd;
+    return;
   }
 
   refreshSelectionUi();
