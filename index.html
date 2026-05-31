@@ -7429,17 +7429,21 @@ function positionTrackEditPopup(anchorEl, mode="track"){
   let centerX = anchorRect.left + anchorRect.width / 2;
   centerX = Math.max(half + margin, Math.min(vw - half - margin, centerX));
 
-  let top = mode === "wave" ? anchorRect.bottom + 8 : anchorRect.bottom + 6;
-  const minTop = margin + (window.visualViewport ? window.visualViewport.offsetTop || 0 : 0);
-  const measuredHeight = popup.offsetHeight || 360;
-  const maxTop = Math.max(minTop, vh - Math.min(measuredHeight, vh - margin * 2) - margin);
-  top = Math.max(minTop, Math.min(top, maxTop));
+  const safeTop = margin + (window.visualViewport ? window.visualViewport.offsetTop || 0 : 0);
+  const minPopupHeight = Math.min(300, Math.max(180, vh * 0.42));
+  let top = anchorRect.bottom + (mode === "wave" ? 10 : 8);
+  const spaceBelow = vh - top - margin;
+  if(spaceBelow < 170 && anchorRect.top - safeTop > spaceBelow){
+    top = Math.max(safeTop, anchorRect.top - minPopupHeight - 8);
+  }
+  top = Math.max(safeTop, Math.min(top, vh - 170));
+  const maxHeight = Math.max(160, vh - top - margin);
 
   popup.style.width = `${popupWidth}px`;
   popup.style.left = `${centerX}px`;
   popup.style.top = `${top}px`;
   popup.style.transform = "translateX(-50%)";
-  popup.style.maxHeight = `${Math.max(180, vh - top - margin)}px`;
+  popup.style.maxHeight = `${maxHeight}px`;
 }
 
 function refreshTrackEditPopupButtons(track){
