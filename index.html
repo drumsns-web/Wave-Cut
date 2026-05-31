@@ -776,12 +776,12 @@ audio{width:100%;margin:8px 0}
 .track-edit-popup-backdrop.open{display:block;}
 .track-edit-popup{
   position:fixed;
-  top:max(14px, env(safe-area-inset-top));
+  top:auto;
+  bottom:max(10px, env(safe-area-inset-bottom));
   left:50%;
-  bottom:auto;
   transform:translateX(-50%);
   width:min(520px,calc(100% - 24px));
-  max-height:calc(100dvh - 28px);
+  max-height:min(58dvh, 520px);
   overflow:auto;
   overscroll-behavior:contain;
   z-index:981;
@@ -864,9 +864,10 @@ audio{width:100%;margin:8px 0}
 }
 @media (max-width:520px){
   .track-edit-popup{
-    top:max(10px, env(safe-area-inset-top));
+    top:auto;
+    bottom:max(8px, env(safe-area-inset-bottom));
     width:calc(100% - 16px);
-    max-height:calc(100dvh - 20px);
+    max-height:62dvh;
     padding:14px 12px 18px;
   }
   .track-edit-popup-grid{grid-template-columns:1fr;}
@@ -7398,82 +7399,15 @@ function positionTrackEditPopup(anchorEl, mode="track"){
   const popup = document.getElementById("trackEditPopup");
   if(!popup) return;
   const vw = window.innerWidth || document.documentElement.clientWidth || 360;
-  const vh = window.innerHeight || document.documentElement.clientHeight || 640;
-  const scrollX = window.scrollX || window.pageXOffset || 0;
-  const scrollY = window.scrollY || window.pageYOffset || 0;
   const margin = 10;
-  let anchorRect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
-
-  if(mode === "wave"){
-    // Wave Edit の編集メニューは、必ず Wave Edit 内の編集ボタン直下に出す。
-    // 波形キャンバス基準だと画面余白の都合で上のトラック付近へ逃げることがある。
-    const btnRect = anchorEl && anchorEl.getBoundingClientRect ? anchorEl.getBoundingClientRect() : null;
-    if(btnRect){
-      anchorRect = {
-        left: btnRect.left,
-        right: btnRect.right,
-        top: btnRect.top,
-        bottom: btnRect.bottom,
-        width: btnRect.width,
-        height: btnRect.height
-      };
-    }
-  }else if(anchorEl && anchorEl.closest){
-    const editBar = anchorEl.closest(".track-edit-bar");
-    const lane = anchorEl.closest(".track-lane");
-    const trackRect = (lane && lane.getBoundingClientRect) ? lane.getBoundingClientRect() : null;
-    const barRect = (editBar && editBar.getBoundingClientRect) ? editBar.getBoundingClientRect() : null;
-    const baseRect = trackRect || barRect;
-    if(baseRect){
-      anchorRect = {
-        left: baseRect.left,
-        right: baseRect.right,
-        top: baseRect.top,
-        bottom: baseRect.bottom,
-        width: baseRect.width,
-        height: baseRect.height
-      };
-    }else if(barRect){
-      anchorRect = {
-        left: barRect.left,
-        right: barRect.right,
-        top: barRect.top,
-        bottom: barRect.bottom,
-        width: barRect.width,
-        height: barRect.height
-      };
-    }
-  }
-
-  if(!anchorRect){
-    popup.style.left = "50%";
-    popup.style.top = "max(14px, env(safe-area-inset-top))";
-    popup.style.transform = "translateX(-50%)";
-    popup.style.maxHeight = "calc(100dvh - 28px)";
-    return;
-  }
-
   const popupWidth = Math.min(520, Math.max(280, vw - margin * 2));
-  const half = popupWidth / 2;
-  let centerX = anchorRect.left + anchorRect.width / 2;
-  centerX = Math.max(half + margin, Math.min(vw - half - margin, centerX));
-
-  const safeTop = margin + (window.visualViewport ? window.visualViewport.offsetTop || 0 : 0);
-  let top = anchorRect.bottom + (mode === "wave" ? 14 : 14);
-  const spaceBelow = vh - top - margin;
-  if(mode !== "wave" && spaceBelow < 170 && anchorRect.top - safeTop > spaceBelow){
-    const minPopupHeight = Math.min(300, Math.max(180, vh * 0.42));
-    top = Math.max(safeTop, anchorRect.top - minPopupHeight - 8);
-  }
-  top = Math.max(safeTop, top);
-  const viewportMaxHeight = Math.max(160, vh - Math.min(top, vh - 170) - margin);
-
-  popup.style.position = "absolute";
+  popup.style.position = "fixed";
   popup.style.width = `${popupWidth}px`;
-  popup.style.left = `${centerX + scrollX}px`;
-  popup.style.top = `${top + scrollY}px`;
+  popup.style.left = "50%";
+  popup.style.top = "auto";
+  popup.style.bottom = "max(10px, env(safe-area-inset-bottom))";
   popup.style.transform = "translateX(-50%)";
-  popup.style.maxHeight = `${viewportMaxHeight}px`;
+  popup.style.maxHeight = "min(58dvh, 520px)";
 }
 
 function refreshTrackEditPopupButtons(track){
