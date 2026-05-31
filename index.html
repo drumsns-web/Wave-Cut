@@ -1285,6 +1285,30 @@ body.clip-edit-mode::before{
 
 .teb-btn.teb-split{ color:#f0abfc; border-color:rgba(240,171,252,.3) !important; }
 .teb-btn.teb-split:not(:disabled):active{ background:rgba(240,171,252,.2) !important; }
+.wave-edit-toolbar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:6px;
+  margin:8px 0 10px;
+}
+.wave-edit-toolbar .teb-btn{
+  width:auto;
+  min-width:34px;
+  height:34px;
+  padding:0 10px;
+  border-radius:8px;
+}
+.wave-edit-toolbar .teb-btn.active{
+  color:#fff;
+  background:rgba(255,51,85,.22) !important;
+  border-color:rgba(255,51,85,.55) !important;
+}
+.wave-edit-toolbar .wave-edit-label{
+  font-size:11px;
+  color:#94a3b8;
+  padding:0 2px;
+}
 
 /* スマホでは波形をさらに低く、トラックをコンパクトに */
 @media(max-width:560px){
@@ -1856,6 +1880,20 @@ button.purple{ background:linear-gradient(180deg,#c084fc,#9333ea) !important; co
     <button id="wavePauseBtn" class="wave-stop-btn" disabled>⏸ 停止</button>
   </div>
 
+  <div class="wave-edit-toolbar" aria-label="Wave Edit tools">
+    <button id="waveHandBtn" class="teb-btn teb-edit" title="手のひら：分割クリップを選択して動かす" disabled>✋</button>
+    <button id="waveMenuBtn" class="teb-btn teb-menu" title="編集メニュー" disabled>編集</button>
+    <button id="waveFxBtn" class="teb-btn teb-fx" title="エフェクト" disabled>FX</button>
+    <button id="waveTrackUndoBtn" class="teb-btn teb-undo" title="このトラックの編集を元に戻す" disabled>↩</button>
+    <span class="teb-sep"></span>
+    <button id="waveRestartBtn" class="teb-btn teb-restart" title="最初に戻る" disabled>⏮</button>
+    <button id="waveNudgeM500Btn" class="teb-btn teb-quick-shift neg" title="トラック全体を-500ms" disabled>⏪</button>
+    <button id="waveNudgeM100Btn" class="teb-btn teb-quick-shift neg" title="トラック全体を-100ms" disabled>‹</button>
+    <span class="wave-edit-label">位置</span>
+    <button id="waveNudgeP100Btn" class="teb-btn teb-quick-shift pos" title="トラック全体を+100ms" disabled>›</button>
+    <button id="waveNudgeP500Btn" class="teb-btn teb-quick-shift pos" title="トラック全体を+500ms" disabled>⏩</button>
+  </div>
+
   <canvas id="waveCanvas" class="wave-canvas-joined"></canvas>
 
   <div class="nudge-panel">
@@ -2183,6 +2221,15 @@ const timeRulerCtx = timeRulerCanvas.getContext("2d");
 const bigTimeLabel = document.getElementById("bigTimeLabel");
 const wavePlayBtn = document.getElementById("wavePlayBtn");
 const wavePauseBtn = document.getElementById("wavePauseBtn");
+const waveHandBtn = document.getElementById("waveHandBtn");
+const waveMenuBtn = document.getElementById("waveMenuBtn");
+const waveFxBtn = document.getElementById("waveFxBtn");
+const waveTrackUndoBtn = document.getElementById("waveTrackUndoBtn");
+const waveRestartBtn = document.getElementById("waveRestartBtn");
+const waveNudgeM500Btn = document.getElementById("waveNudgeM500Btn");
+const waveNudgeM100Btn = document.getElementById("waveNudgeM100Btn");
+const waveNudgeP100Btn = document.getElementById("waveNudgeP100Btn");
+const waveNudgeP500Btn = document.getElementById("waveNudgeP500Btn");
 const trackTimelineTotal = document.getElementById("trackTimelineTotal");
 const trackCanvasMain = document.getElementById("trackCanvasMain");
 const trackCanvasTake = document.getElementById("trackCanvasTake");
@@ -2263,6 +2310,7 @@ function setEditClipMode(on){
   editClipMode = !!on;
   document.body.classList.toggle("clip-edit-mode", editClipMode);
   document.querySelectorAll(".teb-edit").forEach(b=>b.classList.toggle("active", editClipMode));
+  if(waveHandBtn) waveHandBtn.classList.toggle("active", editClipMode);
   if(!editClipMode){
     Object.keys(trackState).forEach(track=>{
       if(trackState[track]) trackState[track].selectedClipId = null;
@@ -4175,10 +4223,22 @@ if(_dummyFileInput && _dummyFileInput !== fileInputMain) _dummyFileInput.onchang
 
 function updateButtons(){
   const hasActive = !!activeBuffer();
+  const activeTrackState = (typeof getTrackState === "function") ? getTrackState(activeBufferType) : null;
   updateSourceStatus();
   updateViewPositionLabel();
   wavePlayBtn.disabled = !hasActive;
   wavePauseBtn.disabled = !hasActive;
+  if(waveHandBtn){
+    waveHandBtn.disabled = !hasActive;
+    waveHandBtn.classList.toggle("active", !!editClipMode);
+  }
+  if(waveMenuBtn) waveMenuBtn.disabled = !hasActive;
+  if(waveFxBtn) waveFxBtn.disabled = !hasActive || !document.getElementById(`fxToggle${cap(activeBufferType)}`);
+  if(waveTrackUndoBtn) waveTrackUndoBtn.disabled = !(hasActive && activeTrackState && activeTrackState.undoStack.length);
+  if(waveRestartBtn) waveRestartBtn.disabled = !hasActive;
+  [waveNudgeM500Btn,waveNudgeM100Btn,waveNudgeP100Btn,waveNudgeP500Btn].forEach(btn=>{
+    if(btn) btn.disabled = !hasActive;
+  });
   setStartBtn.disabled = !hasActive;
   setEndBtn.disabled = !hasActive;
   const hasRange = hasSelection();
@@ -4204,6 +4264,9 @@ function updateButtons(){
   selectMainBtn.disabled = !mainBuffer;
   selectTakeBtn.disabled = !takeBuffer;
   if(selectChorusBtn) selectChorusBtn.disabled = !chorusBuffer;
+  if(typeof updateTrackEditBar === "function"){
+    updateTrackEditBar(activeBufferType);
+  }
   prependTakeBtn.disabled = !(mainBuffer && takeBuffer);
   appendTakeBtn.disabled = !(mainBuffer && takeBuffer);
   mixTakeBtn.disabled = !(mainBuffer && (takeBuffer || chorusBuffer));
@@ -5650,6 +5713,53 @@ function syncActiveTrackStateFromWaveEdit(){
   st.selEnd = selectedEnd;
 }
 
+function refreshWaveEditFromTrack(track, options={}){
+  const buf = bufferForTrack(track);
+  if(!buf) return;
+  if(options.switchToTrack || activeBufferType === track){
+    syncActiveSelectionFromTrack(track);
+    const sel = document.getElementById("waveTrackSelect");
+    if(sel && sel.value !== track) sel.value = track;
+    invalidateWaveformCache();
+    if(options.preview){
+      refreshPreview();
+    }else{
+      drawWaveform(buf);
+      updateTimeLabel(buf);
+    }
+  }
+  updateButtons();
+}
+
+function clipAtWaveRatio(track, ratio){
+  const clips = trackClips[track] || [];
+  const buf = bufferForTrack(track);
+  if(!buf) return null;
+  const sec = Math.max(0, Math.min(buf.duration, buf.duration * ratio));
+  for(const cl of clips){
+    if(sec >= cl.startSec && sec < cl.startSec + cl.buffer.duration) return cl;
+  }
+  return null;
+}
+
+function clampClipStartForTrack(track, clip, desiredStart){
+  const clips = trackClips[track] || [];
+  const dur = clip && clip.buffer ? clip.buffer.duration : 0;
+  let minStart = 0;
+  let maxStart = Infinity;
+  const origStart = clip.startSec || 0;
+  for(const other of clips){
+    if(!other || other.id === clip.id || !other.buffer) continue;
+    const otherEnd = other.startSec + other.buffer.duration;
+    if(otherEnd <= origStart){
+      minStart = Math.max(minStart, otherEnd);
+    }else if(other.startSec >= origStart + dur){
+      maxStart = Math.min(maxStart, other.startSec - dur);
+    }
+  }
+  return Math.max(minStart, Math.min(maxStart, desiredStart));
+}
+
 function drawWaveEditClipOverlay(buffer, w, h, visibleStart, visibleEnd){
   if(!buffer || !buffer.duration || typeof trackClips === "undefined") return;
   const clips = trackClips[activeBufferType] || [];
@@ -5812,6 +5922,7 @@ let isDragging=false;
 let pointerDownRatio=0;
 let beforePointerStart=null;
 let beforePointerEnd=null;
+let waveClipDragState=null;
 
 function refreshSelectionUi(){
   syncActiveTrackStateFromWaveEdit();
@@ -5824,6 +5935,36 @@ function refreshSelectionUi(){
 canvas.addEventListener("pointerdown",e=>{
   if(wavePinchActive) return;
   if(!activeBuffer()) return;
+  if(editClipMode){
+    e.preventDefault();
+    const ratio = getCanvasRatio(e);
+    const track = activeBufferType;
+    const cl = clipAtWaveRatio(track, ratio);
+    const st = getTrackState(track);
+    if(cl){
+      st.selectedClipId = cl.id;
+      st.selStart = null;
+      st.selEnd = null;
+      selectedStart = null;
+      selectedEnd = null;
+      trackPushUndo(track, "クリップ移動");
+      waveClipDragState = {
+        track,
+        clipId: cl.id,
+        origStartSec: cl.startSec,
+        pointerStartSec: activeBuffer().duration * ratio
+      };
+      drawWaveform(activeBuffer());
+      updateTrackEditBar(track);
+      if(fileStatus) fileStatus.textContent = "✋ クリップを選択しました。左右にドラッグして移動できます。";
+    }else{
+      st.selectedClipId = null;
+      waveClipDragState = null;
+      drawWaveform(activeBuffer());
+      if(fileStatus) fileStatus.textContent = "この位置にクリップがありません。";
+    }
+    return;
+  }
   isDragging=true;
   beforePointerStart = selectedStart;
   beforePointerEnd = selectedEnd;
@@ -5835,6 +5976,25 @@ canvas.addEventListener("pointerdown",e=>{
 
 canvas.addEventListener("pointermove",e=>{
   if(wavePinchActive) return;
+  if(editClipMode && waveClipDragState){
+    e.preventDefault();
+    const track = waveClipDragState.track;
+    const buf = bufferForTrack(track);
+    const clip = (trackClips[track] || []).find(c=>c.id === waveClipDragState.clipId);
+    if(buf && clip){
+      const ratio = getCanvasRatio(e);
+      const curSec = buf.duration * ratio;
+      const desired = waveClipDragState.origStartSec + (curSec - waveClipDragState.pointerStartSec);
+      clip.startSec = clampClipStartForTrack(track, clip, desired);
+      rebuildTrackBuffer(track);
+      markTrackAudioChanged(track);
+      invalidateWaveformCache();
+      refreshWaveEditFromTrack(track, {switchToTrack:true});
+      drawStackedTimelines();
+      updateTrackEditBar(track);
+    }
+    return;
+  }
   if(!isDragging || !activeBuffer()) return;
   selectedEnd=getCanvasRatio(e);
   refreshSelectionUi();
@@ -5842,6 +6002,14 @@ canvas.addEventListener("pointermove",e=>{
 
 canvas.addEventListener("pointerup",e=>{
   if(wavePinchActive) return;
+  if(editClipMode && waveClipDragState){
+    const track = waveClipDragState.track;
+    waveClipDragState = null;
+    refreshWaveEditFromTrack(track, {switchToTrack:true});
+    drawStackedTimelines();
+    updateTrackEditBar(track);
+    return;
+  }
   if(!activeBuffer()) return;
   const upRatio = getCanvasRatio(e);
   const moved = Math.abs(upRatio - pointerDownRatio);
@@ -5859,6 +6027,12 @@ canvas.addEventListener("pointerup",e=>{
 });
 
 canvas.addEventListener("pointercancel",()=>{
+  if(waveClipDragState){
+    const track = waveClipDragState.track;
+    waveClipDragState = null;
+    refreshWaveEditFromTrack(track, {switchToTrack:true});
+    return;
+  }
   if(!isDragging) return;
   isDragging=false;
   refreshSelectionUi();
@@ -5980,30 +6154,55 @@ setEndBtn.onclick=()=>{
   refreshSelectionUi();
 };
 
+if(waveHandBtn){
+  waveHandBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    performTrackHandMode(activeBufferType);
+    updateButtons();
+  };
+}
+if(waveMenuBtn){
+  waveMenuBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    openTrackEditPopup(activeBufferType);
+  };
+}
+if(waveFxBtn){
+  waveFxBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    performTrackFxToggle(activeBufferType);
+  };
+}
+if(waveTrackUndoBtn){
+  waveTrackUndoBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    trackUndo(activeBufferType);
+    refreshWaveEditFromTrack(activeBufferType, {switchToTrack:true});
+  };
+}
+if(waveRestartBtn){
+  waveRestartBtn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    performTrackRestart(activeBufferType);
+    refreshWaveEditFromTrack(activeBufferType, {switchToTrack:true});
+  };
+}
+[
+  [waveNudgeM500Btn, -500],
+  [waveNudgeM100Btn, -100],
+  [waveNudgeP100Btn, 100],
+  [waveNudgeP500Btn, 500],
+].forEach(([btn, ms])=>{
+  if(btn) btn.onclick = ()=>{
+    if(!activeBuffer()) return;
+    performTrackNudge(activeBufferType, ms);
+    refreshWaveEditFromTrack(activeBufferType, {switchToTrack:true});
+  };
+});
+
 cutBtn.onclick=()=>{
   if(!hasSelection()) return;
-  const buf = activeBuffer();
-  if(!buf) return;
-  const start = Math.min(selectedStart, selectedEnd);
-  const end   = Math.max(selectedStart, selectedEnd);
-  const startSec = buf.duration * start;
-  const endSec   = buf.duration * end;
-  const track = activeBufferType;
-  // trackState のアンドゥを使う（トラックキャンバス側と同じ方式）
-  if(typeof trackPushUndo === "function") trackPushUndo(track, "選択範囲カット");
-  saveUndoState("選択範囲カット");
-  const clipped = cutTimeRangeFromClips(track, startSec, endSec);
-  if(clipped){ clipboardBuffer = clipped; }
-  if(track==="take"){ takeFxBaked=false; takeFxBackup=null; }
-  else if(track==="chorus"){ chorusFxBaked=false; chorusFxBackup=null; }
-  else { mainFxBaked=false; mainFxBackup=null; }
-  selectedStart=null; selectedEnd=null;
-  playheadRatio = Math.min(1, Math.max(0, start));
-  invalidateWaveformCache();
-  refreshPreview(); updateButtons();
-  const st = typeof getTrackState==="function" ? getTrackState(track) : null;
-  if(st){ st.selStart=null; st.selEnd=null; st.playheadRatio=playheadRatio; }
-  if(typeof drawStackedTimelines==="function") drawStackedTimelines();
+  performTrackCut(activeBufferType);
 };
 
 trimBtn.onclick=()=>{
@@ -6199,65 +6398,21 @@ function clearFxBackupForActiveEdit(){
 
 cutToClipboardBtn.onclick=()=>{
   if(!hasSelection()) return;
-  const buffer = activeBuffer();
-  const start  = Math.min(selectedStart, selectedEnd);
-  const end    = Math.max(selectedStart, selectedEnd);
-  const startSec = buffer.duration * start;
-  const endSec   = buffer.duration * end;
-  const track  = activeBufferType;
-  if(typeof trackPushUndo === "function") trackPushUndo(track, "切り取り");
   saveUndoState("切り取り");
-  const clipped = cutTimeRangeFromClips(track, startSec, endSec);
-  if(clipped){
-    clipboardBuffer = clipped;
-    clipboardSourceLabel = track==="take" ? "追加音源から切り取り" : "メイン音源から切り取り";
-  }
-  clearFxBackupForActiveEdit();
-  if(track==="take"){ takeFxBaked=false; takeFxBackup=null; }
-  else if(track==="chorus"){ chorusFxBaked=false; chorusFxBackup=null; }
-  else { mainFxBaked=false; mainFxBackup=null; }
-  selectedStart=null; selectedEnd=null;
-  playheadRatio = Math.min(1, Math.max(0, start));
-  centerViewportOnPlayhead();
-  invalidateWaveformCache();
-  refreshPreview(); updateButtons();
-  const st = typeof getTrackState==="function" ? getTrackState(track) : null;
-  if(st){ st.selStart=null; st.selEnd=null; st.playheadRatio=playheadRatio; }
-  if(typeof drawStackedTimelines==="function") drawStackedTimelines();
+  clipboardSourceLabel = `${trackDisplayName(activeBufferType)}から切り取り`;
+  performTrackCut(activeBufferType);
 };
 
 copyToClipboardBtn.onclick=()=>{
   if(!hasSelection()) return;
-  const buffer = activeBuffer();
-  const start=Math.min(selectedStart,selectedEnd);
-  const end=Math.max(selectedStart,selectedEnd);
-  clipboardBuffer = copyAudioRange(buffer,start,end);
-  clipboardSourceLabel = activeBufferType === "take" ? "追加音源からコピー" : "メイン音源からコピー";
-  selectedStart=null; selectedEnd=null;
-  drawWaveform(activeBuffer());
-  updateButtons();
+  clipboardSourceLabel = `${trackDisplayName(activeBufferType)}からコピー`;
+  performTrackCopy(activeBufferType);
 };
 
 pasteClipboardBtn.onclick=async()=>{
-  const buffer = activeBuffer();
-  if(!buffer || !clipboardBuffer) return;
+  if(!activeBuffer() || !clipboardBuffer) return;
   saveUndoState("貼り付け");
-  const pasteRatio = playheadRatio || 0;
-  try{
-    const track = activeBufferType;
-    const st = getTrackState(track);
-    st.playheadRatio = pasteRatio;
-    const pasted = pasteClipIntoTrackAtPlayhead(track, clipboardBuffer);
-    if(!pasted) return;
-    clearFxBackupForActiveEdit();
-    selectedStart=null; selectedEnd=null;
-    playheadRatio = st.playheadRatio;
-    centerViewportOnPlayhead();
-    await refreshPreview(); updateButtons();
-  }catch(err){
-    alert("貼り付けに失敗しました: " + err.message);
-    console.error(err);
-  }
+  await performTrackPaste(activeBufferType);
 };
 
 clearClipboardBtn.onclick=()=>{
@@ -6443,6 +6598,7 @@ function trackUndo(track){
   drawStackedTimelines();
   updateTrackEditBar(track);
   updateButtons();
+  refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
 }
 
 // ── per-track canvas interaction ─────────────────────────────────
@@ -6601,6 +6757,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
         rebuildTrackBuffer(track);
         invalidateWaveformCache();
         drawStackedTimelines();
+        refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
         // ドラッグ中のステータス
         if(fileStatus) fileStatus.textContent = `🤚 ${formatTimeMs(clip.startSec)} に移動中...`;
       }
@@ -6618,7 +6775,9 @@ function setupTrackCanvasInteraction(canvasEl, track){
     if(!pointerMovedForSelection) return;
     if(r < dragStartRatio){ st.selStart = r; st.selEnd = dragStartRatio; }
     else { st.selStart = dragStartRatio; st.selEnd = r; }
+    syncActiveSelectionFromTrack(track);
     drawMiniTrackWave(canvasEl, track, trackColor(track));
+    refreshWaveEditFromTrack(track, {switchToTrack:true});
     updateTrackEditBar(track);
   }
 
@@ -6635,6 +6794,7 @@ function setupTrackCanvasInteraction(canvasEl, track){
       }
       // 再描画して最終位置を反映
       drawStackedTimelines();
+      refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
       return;
     }
     if(!isDragging) return;
@@ -6644,8 +6804,10 @@ function setupTrackCanvasInteraction(canvasEl, track){
     if(!moved){
       // タップ＝シーク。既存のA/B地点は保持する。
       drawStackedTimelines();
+      refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
     } else {
       drawMiniTrackWave(canvasEl, track, trackColor(track));
+      refreshWaveEditFromTrack(track, {switchToTrack:true});
     }
     updateTrackEditBar(track);
     if(trackEditPopupTrack === track){
@@ -6926,6 +7088,7 @@ function setTrackPoint(track, point){
     refreshTrackEditPopupButtons(track);
   }
   updateButtons();
+  refreshWaveEditFromTrack(track, {switchToTrack:true});
 }
 
 function performTrackCut(track){
@@ -6953,6 +7116,7 @@ function performTrackCut(track){
   st.playheadRatio = Math.min(1, startSec / newDur);
   syncActiveSelectionFromTrack(track);
   invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+  refreshWaveEditFromTrack(track, {switchToTrack:true});
   const clipCount = trackClips[track].length;
   clearTrackSelection(track);
   fileStatus.textContent = `✂ ${formatTimeMs(endSec - startSec)} をカット（クリップ数: ${clipCount}）`;
@@ -6971,6 +7135,7 @@ function performTrackCopy(track){
   drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
   updateTrackEditBar(track);
   updateButtons();
+  refreshWaveEditFromTrack(track, {switchToTrack:true});
   clearTrackSelection(track);
   fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
 }
@@ -7014,6 +7179,7 @@ async function performTrackPaste(track){
     if(!pasted) return;
     syncActiveSelectionFromTrack(track);
     invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+    refreshWaveEditFromTrack(track, {switchToTrack:true});
     clearTrackSelection(track);
     fileStatus.textContent = `⎙ ${formatTimeMs(pasted.buffer.duration)} を ${formatTimeMs(pasted.startSec)} に貼り付けました`;
   }catch(err){ alert("貼り付けに失敗: " + err.message); }
@@ -7024,7 +7190,7 @@ function performTrackSplit(track){
   const st  = getTrackState(track);
   if(!buf){ if(fileStatus) fileStatus.textContent = "このトラックに音源がありません"; return; }
   const total = buf.duration;
-  const splitSec = total * (st.playheadRatio || 0) - offsetForTrack(track);
+  const splitSec = total * (st.playheadRatio || 0);
   trackPushUndo(track, "分割");
   const ok = splitClipAtSec(track, splitSec);
   if(ok){
@@ -7034,6 +7200,7 @@ function performTrackSplit(track){
     else { mainFxBaked = false; mainFxBackup = null; }
     if(activeBufferType === track){ invalidateWaveformCache(); refreshPreview(); }
     invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
+    refreshWaveEditFromTrack(track, {switchToTrack:true});
     const clipCount = (trackClips[track]||[]).length;
     clearTrackSelection(track);
     if(fileStatus) fileStatus.textContent = `✂️ 分割しました（クリップ数: ${clipCount}）`;
@@ -7054,6 +7221,7 @@ function clearTrackSelection(track){
   if(canvas) drawMiniTrackWave(canvas, track, trackColor(track));
   if(typeof drawStackedTimelines === "function") drawStackedTimelines();
   updateTrackEditBar(track);
+  refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
   if(trackEditPopupTrack === track){
     updateTrackEditPopupInfo(track);
     refreshTrackEditPopupButtons(track);
@@ -7066,6 +7234,7 @@ function performTrackRestart(track){
   syncActiveSelectionFromTrack(track);
   drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
   updateTrackEditBar(track);
+  refreshWaveEditFromTrack(track, {switchToTrack:true});
   fileStatus.textContent = `${trackDisplayName(track)} を最初に戻しました`;
 }
 
@@ -7098,6 +7267,7 @@ function performTrackNudge(track, ms){
   drawStackedTimelines();
   updateTrackEditBar(track);
   updateButtons();
+  refreshWaveEditFromTrack(track, {switchToTrack: activeBufferType === track});
   fileStatus.textContent = `${trackDisplayName(track)} を ${ms>0?"+":""}${ms}ms 微調整しました`;
 }
 
@@ -7255,68 +7425,15 @@ function setupTrackEditBar(track){
 
   // ✂ カット（クリップ分裂方式：選択範囲を削除、後ろの音は位置を保持）
   const cutBtn_ = document.getElementById(`tebCut${c}`);
-  if(cutBtn_) cutBtn_.onclick = ()=>{
-    const buf = bufferForTrack(track);
-    const st  = getTrackState(track);
-    if(!buf || st.selStart === null || st.selEnd === null) return;
-    trackPushUndo(track, "カット");
-    const s = Math.min(st.selStart, st.selEnd);
-    const e = Math.max(st.selStart, st.selEnd);
-    const totalDur = buf.duration;
-    const startSec = s * totalDur;
-    const endSec   = e * totalDur;
-    const clipped = cutTimeRangeFromClips(track, startSec, endSec);
-    if(clipped){
-      st.clipboard = clipped;
-      clipboardBuffer = clipped;
-    }
-    // バッファ全体が変わったので、参照を更新
-    if(track === "take")   { takeFxBaked = false; takeFxBackup = null; }
-    else if(track === "chorus"){ chorusFxBaked = false; chorusFxBackup = null; }
-    else                   { mainFxBaked = false; mainFxBackup = null; }
-    if(activeBufferType === track){ invalidateWaveformCache(); refreshPreview(); }
-    st.selStart = null; st.selEnd = null;
-    // プレイヘッドは元の選択開始位置に
-    const newDur = bufferForTrack(track) ? bufferForTrack(track).duration : 1;
-    st.playheadRatio = Math.min(1, startSec / newDur);
-    invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-    const clipCount = trackClips[track].length;
-    fileStatus.textContent = `✂ ${formatTimeMs(endSec - startSec)} をカット（クリップ数: ${clipCount}）`;
-  };
+  if(cutBtn_) cutBtn_.onclick = ()=>performTrackCut(track);
 
   // ⎘ コピー
   const copyBtn_ = document.getElementById(`tebCopy${c}`);
-  if(copyBtn_) copyBtn_.onclick = ()=>{
-    const buf = bufferForTrack(track);
-    const st  = getTrackState(track);
-    if(!buf || st.selStart === null) return;
-    const s = Math.min(st.selStart, st.selEnd);
-    const e = Math.max(st.selStart, st.selEnd);
-    st.clipboard = copyAudioRange(buf, s, e);
-    clipboardBuffer = st.clipboard;
-    st.selStart = null; st.selEnd = null;
-    drawMiniTrackWave(document.getElementById(`trackCanvas${c}`), track, trackColor(track));
-    updateTrackEditBar(track);
-    fileStatus.textContent = `⎘ ${formatTimeMs((e-s)*buf.duration)} をコピーしました`;
-  };
+  if(copyBtn_) copyBtn_.onclick = ()=>performTrackCopy(track);
 
   // ⎙ 貼り付け
   const pasteBtn_ = document.getElementById(`tebPaste${c}`);
-  if(pasteBtn_) pasteBtn_.onclick = async ()=>{
-    const buf  = bufferForTrack(track);
-    const st   = getTrackState(track);
-    const clip = st.clipboard || clipboardBuffer;
-    if(!buf || !clip) return;
-    trackPushUndo(track, "貼り付け");
-    try{
-      const pasted = pasteClipIntoTrackAtPlayhead(track, clip);
-      if(!pasted) return;
-      syncActiveSelectionFromTrack(track);
-      invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-      clearTrackSelection(track);
-      fileStatus.textContent = `⎙ ${formatTimeMs(pasted.buffer.duration)} を ${formatTimeMs(pasted.startSec)} に貼り付けました`;
-    }catch(err){ alert("貼り付けに失敗: " + err.message); }
-  };
+  if(pasteBtn_) pasteBtn_.onclick = async ()=>performTrackPaste(track);
 
   // ↩ アンドゥ
   const undoBtn_ = document.getElementById(`tebUndo${c}`);
@@ -7324,27 +7441,7 @@ function setupTrackEditBar(track){
 
   // ✀ 分割（カーソル位置でクリップを2つに割る）
   const splitBtn_ = document.getElementById(`tebSplit${c}`);
-  if(splitBtn_) splitBtn_.onclick = ()=>{
-    const buf = bufferForTrack(track);
-    const st  = getTrackState(track);
-    if(!buf){ if(fileStatus) fileStatus.textContent = "このトラックに音源がありません"; return; }
-    const total = buf.duration;
-    const splitSec = total * (st.playheadRatio || 0) - offsetForTrack(track);
-    trackPushUndo(track, "分割");
-    const ok = splitClipAtSec(track, splitSec);
-    if(ok){
-      if(track === "take")   { takeFxBaked = false; takeFxBackup = null; }
-      else if(track === "chorus"){ chorusFxBaked = false; chorusFxBackup = null; }
-      else if(isExtraTrack(track)){ const t=getExtraTrack(track); if(t){ t.fxBaked=false; t.fxBackup=null; } }
-      else { mainFxBaked = false; mainFxBackup = null; }
-      if(activeBufferType === track){ invalidateWaveformCache(); refreshPreview(); }
-      invalidateWaveformCache(); drawStackedTimelines(); updateTrackEditBar(track); updateButtons();
-      const clipCount = (trackClips[track]||[]).length;
-      if(fileStatus) fileStatus.textContent = `✂️ 分割しました（クリップ数: ${clipCount}）`;
-    } else {
-      if(fileStatus) fileStatus.textContent = "カーソル位置にクリップがないか、端のため分割できません";
-    }
-  };
+  if(splitBtn_) splitBtn_.onclick = ()=>performTrackSplit(track);
 
   // «‹›» シフトボタン（トラック全体を前後に移動）
   // 旧.teb-shift-l/r と 新.offset-big-btn 両対応
@@ -7399,12 +7496,7 @@ function setupTrackEditBar(track){
   const restartBtn = document.getElementById(`tebRestart${cap(track)}`);
   if(restartBtn){
     restartBtn.onclick = ()=>{
-      const st = getTrackState(track);
-      st.playheadRatio = 0;
-      drawMiniTrackWave(document.getElementById(`trackCanvas${cap(track)}`), track, trackColor(track));
-      updateTrackEditBar(track);
-      const names = {main:'トラック1',take:'トラック2',chorus:'トラック3'};
-      fileStatus.textContent = `${names[track]} を最初に戻しました`;
+      performTrackRestart(track);
     };
   }
 }
@@ -8295,7 +8387,7 @@ function switchActiveBufferTo(track){
     if(!buf){ if(fileStatus) fileStatus.textContent = "音源がありません"; return; }
     const st = getTrackState(track);
     const ratio = (st && st.playheadRatio != null) ? st.playheadRatio : (playheadRatio || 0);
-    const splitSec = buf.duration * ratio - offsetForTrack(track);
+    const splitSec = buf.duration * ratio;
     if(typeof trackPushUndo === "function") trackPushUndo(track, "分割");
     const ok = splitClipAtSec(track, splitSec);
     if(ok){
