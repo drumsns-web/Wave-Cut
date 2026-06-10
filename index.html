@@ -423,6 +423,8 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
   </section>
 </main>
 
+<audio id="htmlPreviewAudio" playsinline preload="auto" style="display:none"></audio>
+
 <div class="popup-backdrop" id="editPopupBackdrop"></div>
 <div class="popup" id="editPopup" role="dialog" aria-modal="true" aria-labelledby="editPopupTitle">
   <div class="popup-head">
@@ -491,6 +493,7 @@ const redoBtn = document.getElementById("redoBtn");
 const saveWavBtn = document.getElementById("saveWavBtn");
 const saveMp3Btn = document.getElementById("saveMp3Btn");
 const exportStatus = document.getElementById("exportStatus");
+const htmlPreviewAudio = document.getElementById("htmlPreviewAudio");
 const editPopup = document.getElementById("editPopup");
 const editPopupBackdrop = document.getElementById("editPopupBackdrop");
 const editPopupClose = document.getElementById("editPopupClose");
@@ -508,6 +511,8 @@ let gainNode = null;
 let playStartedAt = 0;
 let playOffset = 0;
 let rafId = null;
+let htmlPreviewUrl = null;
+let htmlPlaybackActive = false;
 let isDragging = false;
 let dragStartTime = 0;
 let micStream = null;
@@ -526,6 +531,59 @@ function ensureAudioContext(){
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
   }
   return audioContext;
+}
+
+async function resumeAudioContext(){
+  const ctx2 = ensureAudioContext();
+  if(ctx2.state === "suspended"){
+    try{ await ctx2.resume(); }catch(e){}
+  }
+  return ctx2;
+}
+
+function isLikelyMobile(){
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+}
+
+function decodeWithContext(ctx2, arrayBuffer){
+  const copy = arrayBuffer.slice(0);
+  return new Promise((resolve, reject)=>{
+    let settled = false;
+    const ok = decoded=>{
+      if(!settled){ settled = true; resolve(decoded); }
+    };
+    const fail = err=>{
+      if(!settled){ settled = true; reject(err); }
+    };
+    try{
+      const result = ctx2.decodeAudioData(copy, ok, fail);
+      if(result && typeof result.then === "function") result.then(ok).catch(fail);
+    }catch(err){
+      fail(err);
+    }
+  });
+}
+
+async function decodeAudioDataRobust(arrayBuffer){
+  await resumeAudioContext();
+  const errors = [];
+  try{
+    return await decodeWithContext(ensureAudioContext(), arrayBuffer);
+  }catch(err){
+    errors.push(err);
+  }
+  try{
+    const freshContext = new (window.AudioContext || window.webkitAudioContext)();
+    if(freshContext.state === "suspended"){
+      try{ await freshContext.resume(); }catch(e){}
+    }
+    const decoded = await decodeWithContext(freshContext, arrayBuffer);
+    try{ await freshContext.close(); }catch(e){}
+    return decoded;
+  }catch(err){
+    errors.push(err);
+  }
+  throw errors[errors.length - 1] || new Error("decode failed");
 }
 
 function formatTime(seconds){
@@ -866,7 +924,7 @@ async function startRecording(){
       setMicUi(false, "録音を読み込み中...");
       try{
         const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-        const decoded = await ctx2.decodeAudioData(await blob.arrayBuffer());
+        const decoded = await decodeAudioDataRobust(await blob.arrayBuffer());
         if(buffer) pushUndo();
         buffer = decoded;
         originalName = "mic-recording";
@@ -924,10 +982,9 @@ async function loadFile(file){
   stopPlayback();
   statusEl.textContent = "読み込み中...";
   exportStatus.textContent = "編集後の音源を保存できます。";
-  const ctx2 = ensureAudioContext();
   try{
     const arrayBuffer = await file.arrayBuffer();
-    const decoded = await ctx2.decodeAudioData(arrayBuffer.slice(0));
+    const decoded = await decodeAudioDataRobust(arrayBuffer);
     buffer = decoded;
     originalName = file.name.replace(/\.[^.]+$/,"") || "wave-cut";
     cursorTime = 0;
@@ -940,11 +997,23 @@ async function loadFile(file){
     updateLabels();
   }catch(err){
     console.error(err);
-    statusEl.textContent = "このファイルはブラウザで読み込めませんでした。別形式に変換して試してください。";
+    statusEl.textContent = "このファイルはスマホのブラウザで読み込めませんでした。MP3 / WAV / M4Aなど別形式で試してください。";
+  }finally{
+    fileInput.value = "";
   }
 }
 
 function stopPlayback(){
+  htmlPlaybackActive = false;
+  if(htmlPreviewAudio){
+    try{ htmlPreviewAudio.pause(); }catch(e){}
+    htmlPreviewAudio.removeAttribute("src");
+    try{ htmlPreviewAudio.load(); }catch(e){}
+  }
+  if(htmlPreviewUrl){
+    URL.revokeObjectURL(htmlPreviewUrl);
+    htmlPreviewUrl = null;
+  }
   if(sourceNode){
     try{ sourceNode.onended = null; sourceNode.stop(); }catch(e){}
     try{ sourceNode.disconnect(); }catch(e){}
@@ -960,9 +1029,12 @@ function stopPlayback(){
 
 async function startPlayback(){
   if(!buffer) return;
-  const ctx2 = ensureAudioContext();
-  await ctx2.resume();
   stopPlayback();
+  if(isLikelyMobile()){
+    await startHtmlAudioPlayback();
+    return;
+  }
+  const ctx2 = await resumeAudioContext();
   playOffset = Math.min(cursorTime, Math.max(0, buffer.duration - 0.01));
   playStartedAt = ctx2.currentTime;
   sourceNode = ctx2.createBufferSource();
@@ -976,8 +1048,60 @@ async function startPlayback(){
     cursorTime = Math.min(buffer.duration, cursorTime);
     updateLabels();
   };
-  sourceNode.start(0, playOffset);
-  tickPlayback();
+  try{
+    sourceNode.start(0, playOffset);
+    tickPlayback();
+  }catch(err){
+    console.warn("Web Audio playback failed, using audio element fallback.", err);
+    stopPlayback();
+    await startHtmlAudioPlayback();
+  }
+}
+
+async function startHtmlAudioPlayback(){
+  if(!buffer) return;
+  playOffset = Math.min(cursorTime, Math.max(0, buffer.duration - 0.01));
+  htmlPreviewUrl = URL.createObjectURL(bufferToWavBlob(buffer));
+  htmlPreviewAudio.src = htmlPreviewUrl;
+  htmlPreviewAudio.volume = Math.min(1, Number(volumeSlider.value) / 100);
+  try{ htmlPreviewAudio.load(); }catch(e){}
+  await new Promise(resolve=>{
+    let done = false;
+    const finish = ()=>{
+      if(done) return;
+      done = true;
+      htmlPreviewAudio.removeEventListener("loadedmetadata", finish);
+      htmlPreviewAudio.removeEventListener("canplay", finish);
+      resolve();
+    };
+    htmlPreviewAudio.addEventListener("loadedmetadata", finish);
+    htmlPreviewAudio.addEventListener("canplay", finish);
+    setTimeout(finish, 600);
+  });
+  try{ htmlPreviewAudio.currentTime = playOffset; }catch(e){}
+  playStartedAt = performance.now() / 1000;
+  htmlPlaybackActive = true;
+  htmlPreviewAudio.onended = ()=>{
+    htmlPlaybackActive = false;
+    cursorTime = Math.min(buffer.duration, htmlPreviewAudio.currentTime || buffer.duration);
+    stopPlayback();
+    updateLabels();
+  };
+  try{
+    await htmlPreviewAudio.play();
+    tickHtmlPlayback();
+  }catch(err){
+    htmlPlaybackActive = false;
+    console.error(err);
+    statusEl.textContent = "再生できませんでした。もう一度、再生ボタンを押してください。";
+  }
+}
+
+function tickHtmlPlayback(){
+  if(!htmlPlaybackActive || !buffer) return;
+  cursorTime = Math.min(buffer.duration, htmlPreviewAudio.currentTime || playOffset);
+  updateLabels();
+  rafId = requestAnimationFrame(tickHtmlPlayback);
 }
 
 function tickPlayback(){
@@ -1206,6 +1330,7 @@ viewScroll.oninput = drawWaveform;
 volumeSlider.oninput = ()=>{
   volumeLabel.textContent = `${volumeSlider.value}%`;
   if(gainNode) gainNode.gain.value = Number(volumeSlider.value) / 100;
+  if(htmlPreviewAudio) htmlPreviewAudio.volume = Math.min(1, Number(volumeSlider.value) / 100);
 };
 saveWavBtn.onclick = ()=>{
   if(!buffer) return;
