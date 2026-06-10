@@ -296,6 +296,26 @@ input[type="range"]{width:100%;accent-color:var(--green)}
   text-align:left;
   padding:10px 12px;
 }
+.capture-media{
+  display:block;
+  width:100%;
+  max-height:220px;
+  margin:10px 0;
+  border-radius:12px;
+  background:#000;
+}
+.capture-progress{
+  margin:10px 0;
+}
+.capture-progress-top{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:6px;
+  color:#cbd5e1;
+  font-size:13px;
+  font-weight:800;
+}
 select{
   width:100%;
   min-height:44px;
@@ -584,6 +604,218 @@ async function decodeAudioDataRobust(arrayBuffer){
     errors.push(err);
   }
   throw errors[errors.length - 1] || new Error("decode failed");
+}
+
+function isAudioFile(file){
+  const type = (file.type || "").toLowerCase();
+  const name = (file.name || "").toLowerCase();
+  return type.startsWith("audio/") || /\.(mp3|wav|m4a|aac|flac|ogg|opus|oga)$/i.test(name);
+}
+
+function probeMediaFile(file){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const isAudio = isAudioFile(file);
+    const media = document.createElement(isAudio ? "audio" : "video");
+    const cleanup = ()=>{
+      try{ media.pause(); }catch(e){}
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      try{ media.remove(); }catch(e){}
+    };
+    const timer = setTimeout(()=>{
+      cleanup();
+      reject(new Error("media metadata timeout"));
+    }, 12000);
+    media.preload = "metadata";
+    media.playsInline = true;
+    media.src = url;
+    media.style.display = "none";
+    document.body.appendChild(media);
+    media.onloadedmetadata = ()=>{
+      clearTimeout(timer);
+      const duration = media.duration;
+      cleanup();
+      if(duration && Number.isFinite(duration)) resolve({ duration });
+      else reject(new Error("media duration unavailable"));
+    };
+    media.onerror = ()=>{
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("media element cannot read this file"));
+    };
+    media.load();
+  });
+}
+
+function extractAudioViaUserTap(file, mediaInfo){
+  return new Promise((resolve, reject)=>{
+    const url = URL.createObjectURL(file);
+    const isAudio = isAudioFile(file);
+    const media = document.createElement(isAudio ? "audio" : "video");
+    const backdrop = document.createElement("div");
+    const panel = document.createElement("div");
+    const title = document.createElement("div");
+    const note = document.createElement("div");
+    const progressWrap = document.createElement("div");
+    const progressTop = document.createElement("div");
+    const progressText = document.createElement("span");
+    const progressPercent = document.createElement("strong");
+    const meter = document.createElement("div");
+    const fill = document.createElement("div");
+    const buttonRow = document.createElement("div");
+    const startBtn = document.createElement("button");
+    const cancelBtn = document.createElement("button");
+
+    backdrop.className = "popup-backdrop show";
+    panel.className = "popup show";
+    title.className = "popup-title";
+    title.textContent = "音声を再生しながら取り込み";
+    note.className = "info";
+    note.textContent = "この形式は直接読み込めないため、再生しながら音声だけを抽出します。完了まで画面を閉じないでください。";
+    progressWrap.className = "capture-progress";
+    progressTop.className = "capture-progress-top";
+    progressText.textContent = `待機中 / ${formatTime(mediaInfo?.duration || 0)}`;
+    progressPercent.textContent = "0%";
+    meter.className = "meter";
+    fill.className = "meter-fill";
+    fill.style.width = "0%";
+    buttonRow.className = "grid2";
+    startBtn.className = "green";
+    startBtn.textContent = "音声抽出を開始";
+    cancelBtn.className = "red";
+    cancelBtn.textContent = "キャンセル";
+    progressTop.append(progressText, progressPercent);
+    meter.appendChild(fill);
+    progressWrap.append(progressTop, meter);
+    buttonRow.append(startBtn, cancelBtn);
+
+    media.src = url;
+    media.preload = "auto";
+    media.playsInline = true;
+    media.controls = false;
+    media.muted = false;
+    media.volume = 1;
+    if(!isAudio) media.className = "capture-media";
+    else media.style.display = "none";
+
+    panel.append(title, note);
+    if(!isAudio) panel.appendChild(media);
+    panel.append(progressWrap, buttonRow);
+    document.body.append(backdrop, panel);
+
+    let source = null;
+    let processor = null;
+    let zeroGain = null;
+    let completed = false;
+    let started = false;
+    const channels = 2;
+    const chunks = [[], []];
+
+    const cleanup = ()=>{
+      completed = true;
+      try{ if(processor) processor.disconnect(); }catch(e){}
+      try{ if(source) source.disconnect(); }catch(e){}
+      try{ if(zeroGain) zeroGain.disconnect(); }catch(e){}
+      try{ media.pause(); }catch(e){}
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      try{ media.remove(); }catch(e){}
+      try{ panel.remove(); }catch(e){}
+      try{ backdrop.remove(); }catch(e){}
+    };
+
+    const finish = ()=>{
+      if(completed) return;
+      const totalLength = chunks[0].reduce((sum, part)=>sum + part.length, 0);
+      if(!totalLength){
+        cleanup();
+        reject(new Error("no audio samples were captured"));
+        return;
+      }
+      const ctx2 = ensureAudioContext();
+      const captured = ctx2.createBuffer(channels, totalLength, ctx2.sampleRate);
+      for(let ch=0; ch<channels; ch++){
+        const out = captured.getChannelData(ch);
+        let offset = 0;
+        for(const part of chunks[ch]){
+          out.set(part, offset);
+          offset += part.length;
+        }
+      }
+      cleanup();
+      resolve(captured);
+    };
+
+    cancelBtn.onclick = ()=>{
+      cleanup();
+      reject(new Error("user cancelled media capture"));
+    };
+    backdrop.onclick = ()=>{};
+    media.onerror = ()=>{
+      cleanup();
+      reject(new Error("media element could not play this file"));
+    };
+    media.ontimeupdate = ()=>{
+      const duration = media.duration || mediaInfo?.duration || 0;
+      const current = media.currentTime || 0;
+      const pct = duration ? Math.min(100, Math.round(current / duration * 100)) : 0;
+      fill.style.width = `${pct}%`;
+      progressPercent.textContent = `${pct}%`;
+      progressText.textContent = `${formatTime(current)} / ${duration ? formatTime(duration) : "--:--"}`;
+    };
+    media.onended = finish;
+
+    startBtn.onclick = async()=>{
+      if(started) return;
+      started = true;
+      startBtn.disabled = true;
+      cancelBtn.disabled = true;
+      note.textContent = "音声抽出中です。完了まで画面を開いたままお待ちください。";
+      try{
+        const ctx2 = await resumeAudioContext();
+        source = ctx2.createMediaElementSource(media);
+        processor = ctx2.createScriptProcessor(4096, channels, channels);
+        zeroGain = ctx2.createGain();
+        zeroGain.gain.value = 0;
+        source.connect(processor);
+        processor.connect(zeroGain);
+        zeroGain.connect(ctx2.destination);
+        processor.onaudioprocess = event=>{
+          if(completed) return;
+          const input = event.inputBuffer;
+          for(let ch=0; ch<channels; ch++){
+            const sourceCh = Math.min(ch, input.numberOfChannels - 1);
+            const data = input.getChannelData(sourceCh);
+            chunks[ch].push(new Float32Array(data));
+            if(ch < event.outputBuffer.numberOfChannels){
+              event.outputBuffer.getChannelData(ch).set(data);
+            }
+          }
+        };
+        media.currentTime = 0;
+        await media.play();
+      }catch(err){
+        cleanup();
+        reject(err);
+      }
+    };
+
+    media.load();
+  });
+}
+
+async function decodeFileToAudioBuffer(file){
+  try{
+    return await decodeAudioDataRobust(await file.arrayBuffer());
+  }catch(directError){
+    console.warn("Direct decode failed. Trying media capture.", directError);
+  }
+  let mediaInfo = null;
+  try{
+    mediaInfo = await probeMediaFile(file);
+  }catch(probeError){
+    console.warn("Media probe failed.", probeError);
+  }
+  return await extractAudioViaUserTap(file, mediaInfo);
 }
 
 function formatTime(seconds){
@@ -983,8 +1215,7 @@ async function loadFile(file){
   statusEl.textContent = "読み込み中...";
   exportStatus.textContent = "編集後の音源を保存できます。";
   try{
-    const arrayBuffer = await file.arrayBuffer();
-    const decoded = await decodeAudioDataRobust(arrayBuffer);
+    const decoded = await decodeFileToAudioBuffer(file);
     buffer = decoded;
     originalName = file.name.replace(/\.[^.]+$/,"") || "wave-cut";
     cursorTime = 0;
