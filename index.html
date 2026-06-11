@@ -197,6 +197,46 @@ input[type="range"]{width:100%;accent-color:var(--green)}
   background:linear-gradient(90deg,#35e0a1,#f59e0b,#ef4444);
   transition:width .08s linear;
 }
+.load-progress{
+  display:none;
+  margin-top:10px;
+  padding:10px;
+  border:1px solid rgba(79,140,255,.28);
+  border-radius:12px;
+  background:rgba(79,140,255,.08);
+}
+.load-progress.show{display:block}
+.load-progress-bar{
+  height:12px;
+  overflow:hidden;
+  border-radius:999px;
+  background:#020617;
+  border:1px solid rgba(255,255,255,.12);
+}
+.load-progress-fill{
+  width:0%;
+  height:100%;
+  border-radius:999px;
+  background:linear-gradient(90deg,#35e0a1,#4f8cff);
+  transition:width .15s ease;
+}
+.load-progress-fill.indeterminate{
+  width:38%;
+  animation:loadSlide 1.15s ease-in-out infinite;
+}
+@keyframes loadSlide{
+  0%{transform:translateX(-110%)}
+  100%{transform:translateX(290%)}
+}
+.load-progress-info{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:7px;
+  color:#cbd5e1;
+  font-size:12px;
+  font-weight:800;
+}
 .mic-controls{
   display:grid;
   grid-template-columns:1fr 1fr;
@@ -347,6 +387,13 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
     <input id="fileInput" class="file-hidden" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.aac,.flac,.ogg,.webm,.mp4,.mov,.m4v">
     <label for="fileInput" class="file-button">音声 / 動画ファイルを読み込む</label>
     <div class="info" id="status">ファイルを読み込むと、波形を見ながらカットできます。</div>
+    <div class="load-progress" id="loadProgress">
+      <div class="load-progress-bar"><div class="load-progress-fill" id="loadProgressFill"></div></div>
+      <div class="load-progress-info">
+        <span id="loadProgressPhase">準備中</span>
+        <span id="loadProgressTime">0%</span>
+      </div>
+    </div>
     <div class="file-name" id="fileName"></div>
   </section>
 
@@ -473,6 +520,10 @@ footer{padding:4px 0 24px;text-align:center;color:#64748b;font-size:12px}
 const fileInput = document.getElementById("fileInput");
 const statusEl = document.getElementById("status");
 const fileNameEl = document.getElementById("fileName");
+const loadProgress = document.getElementById("loadProgress");
+const loadProgressFill = document.getElementById("loadProgressFill");
+const loadProgressPhase = document.getElementById("loadProgressPhase");
+const loadProgressTime = document.getElementById("loadProgressTime");
 const durationPill = document.getElementById("durationPill");
 const selectionPill = document.getElementById("selectionPill");
 const canvas = document.getElementById("waveCanvas");
@@ -533,6 +584,8 @@ let playOffset = 0;
 let rafId = null;
 let htmlPreviewUrl = null;
 let htmlPlaybackActive = false;
+let loadStartedAt = 0;
+let loadElapsedTimer = null;
 let isDragging = false;
 let dragStartTime = 0;
 let micStream = null;
@@ -547,22 +600,109 @@ let micMeterRaf = null;
 let micMeterSource = null;
 
 function ensureAudioContext(){
-  if(!audioContext){
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  if(!audioContext || audioContext.state === "closed"){
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    try{
+      audioContext = new AudioContextClass({ latencyHint:"interactive" });
+    }catch(e){
+      audioContext = new AudioContextClass();
+    }
   }
   return audioContext;
 }
 
 async function resumeAudioContext(){
   const ctx2 = ensureAudioContext();
-  if(ctx2.state === "suspended"){
+  if(ctx2.state === "suspended" || ctx2.state === "interrupted"){
     try{ await ctx2.resume(); }catch(e){}
   }
   return ctx2;
 }
 
-function isLikelyMobile(){
-  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || "");
+function unlockAudioOutput(){
+  const ctx2 = ensureAudioContext();
+  try{ ctx2.resume(); }catch(e){}
+  try{
+    const silent = ctx2.createBuffer(1, 1, 22050);
+    const source = ctx2.createBufferSource();
+    source.buffer = silent;
+    source.connect(ctx2.destination);
+    source.start(0);
+  }catch(e){}
+  return ctx2;
+}
+
+function withTimeout(promise, timeoutMs, message){
+  return new Promise((resolve, reject)=>{
+    const timer = setTimeout(()=>reject(new Error(message || "operation timeout")), timeoutMs);
+    promise.then(value=>{
+      clearTimeout(timer);
+      resolve(value);
+    }).catch(err=>{
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function formatRemaining(seconds){
+  if(!Number.isFinite(seconds) || seconds < 0) return "計算中";
+  if(seconds < 60) return `残り約${Math.max(1, Math.ceil(seconds))}秒`;
+  return `残り約${Math.ceil(seconds / 60)}分`;
+}
+
+function showLoadProgress(phase, percent = null, detail = ""){
+  loadProgress.classList.add("show");
+  loadProgressPhase.textContent = phase;
+  loadProgressFill.classList.toggle("indeterminate", percent === null);
+  if(percent !== null){
+    const safe = Math.max(0, Math.min(100, percent));
+    loadProgressFill.style.width = `${safe}%`;
+  }else{
+    loadProgressFill.style.width = "";
+  }
+  loadProgressTime.textContent = detail || (percent === null ? "処理中" : `${Math.round(percent)}%`);
+}
+
+function startLoadElapsedTimer(phase){
+  if(loadElapsedTimer) clearInterval(loadElapsedTimer);
+  loadStartedAt = performance.now();
+  loadElapsedTimer = setInterval(()=>{
+    const elapsed = Math.max(0, (performance.now() - loadStartedAt) / 1000);
+    loadProgressPhase.textContent = phase;
+    loadProgressTime.textContent = `${Math.floor(elapsed)}秒経過`;
+  }, 500);
+}
+
+function finishLoadProgress(success){
+  if(loadElapsedTimer) clearInterval(loadElapsedTimer);
+  loadElapsedTimer = null;
+  if(success){
+    showLoadProgress("読み込み完了", 100, "100%");
+    setTimeout(()=>loadProgress.classList.remove("show"), 900);
+  }else{
+    loadProgressFill.classList.remove("indeterminate");
+    loadProgress.classList.remove("show");
+  }
+}
+
+function readFileWithProgress(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    const started = performance.now();
+    reader.onprogress = event=>{
+      if(!event.lengthComputable) return;
+      const percent = event.total ? event.loaded / event.total * 100 : 0;
+      const elapsed = Math.max(.1, (performance.now() - started) / 1000);
+      const speed = event.loaded / elapsed;
+      const remain = speed > 0 ? (event.total - event.loaded) / speed : NaN;
+      showLoadProgress("ファイルを端末から読み込み中", percent, formatRemaining(remain));
+    };
+    reader.onload = ()=>resolve(reader.result);
+    reader.onerror = ()=>reject(reader.error || new Error("file read failed"));
+    reader.onabort = ()=>reject(new Error("file read aborted"));
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 function decodeWithContext(ctx2, arrayBuffer){
@@ -588,7 +728,7 @@ async function decodeAudioDataRobust(arrayBuffer){
   await resumeAudioContext();
   const errors = [];
   try{
-    return await decodeWithContext(ensureAudioContext(), arrayBuffer);
+    return await withTimeout(decodeWithContext(ensureAudioContext(), arrayBuffer), 20000, "audio decode timeout");
   }catch(err){
     errors.push(err);
   }
@@ -597,7 +737,7 @@ async function decodeAudioDataRobust(arrayBuffer){
     if(freshContext.state === "suspended"){
       try{ await freshContext.resume(); }catch(e){}
     }
-    const decoded = await decodeWithContext(freshContext, arrayBuffer);
+    const decoded = await withTimeout(decodeWithContext(freshContext, arrayBuffer), 20000, "fresh audio decode timeout");
     try{ await freshContext.close(); }catch(e){}
     return decoded;
   }catch(err){
@@ -758,9 +898,10 @@ function extractAudioViaUserTap(file, mediaInfo){
       const duration = media.duration || mediaInfo?.duration || 0;
       const current = media.currentTime || 0;
       const pct = duration ? Math.min(100, Math.round(current / duration * 100)) : 0;
+      const remain = duration ? Math.max(0, duration - current) : NaN;
       fill.style.width = `${pct}%`;
       progressPercent.textContent = `${pct}%`;
-      progressText.textContent = `${formatTime(current)} / ${duration ? formatTime(duration) : "--:--"}`;
+      progressText.textContent = `${formatTime(current)} / ${duration ? formatTime(duration) : "--:--"}・${formatRemaining(remain)}`;
     };
     media.onended = finish;
 
@@ -805,9 +946,15 @@ function extractAudioViaUserTap(file, mediaInfo){
 
 async function decodeFileToAudioBuffer(file){
   try{
-    return await decodeAudioDataRobust(await file.arrayBuffer());
+    const arrayBuffer = await withTimeout(readFileWithProgress(file), 45000, "file read timeout");
+    showLoadProgress("音声データを変換中", null, "通常は数秒・最大約40秒");
+    startLoadElapsedTimer("音声データを変換中");
+    return await decodeAudioDataRobust(arrayBuffer);
   }catch(directError){
     console.warn("Direct decode failed. Trying media capture.", directError);
+    if(loadElapsedTimer) clearInterval(loadElapsedTimer);
+    loadElapsedTimer = null;
+    showLoadProgress("別の読み込み方式を準備中", null, "まもなく操作画面を表示");
   }
   let mediaInfo = null;
   try{
@@ -815,6 +962,7 @@ async function decodeFileToAudioBuffer(file){
   }catch(probeError){
     console.warn("Media probe failed.", probeError);
   }
+  loadProgress.classList.remove("show");
   return await extractAudioViaUserTap(file, mediaInfo);
 }
 
@@ -1213,6 +1361,7 @@ function runEditAction(action){
 async function loadFile(file){
   stopPlayback();
   statusEl.textContent = "読み込み中...";
+  showLoadProgress("読み込み準備中", 0, "0%");
   exportStatus.textContent = "編集後の音源を保存できます。";
   try{
     const decoded = await decodeFileToAudioBuffer(file);
@@ -1225,9 +1374,11 @@ async function loadFile(file){
     redoStack = [];
     fileNameEl.textContent = file.name;
     statusEl.textContent = `読み込み完了：${formatTime(buffer.duration)}`;
+    finishLoadProgress(true);
     updateLabels();
   }catch(err){
     console.error(err);
+    finishLoadProgress(false);
     statusEl.textContent = "このファイルはスマホのブラウザで読み込めませんでした。MP3 / WAV / M4Aなど別形式で試してください。";
   }finally{
     fileInput.value = "";
@@ -1260,12 +1411,12 @@ function stopPlayback(){
 
 async function startPlayback(){
   if(!buffer) return;
+  const unlockedContext = unlockAudioOutput();
   stopPlayback();
-  if(isLikelyMobile()){
-    await startHtmlAudioPlayback();
-    return;
+  let ctx2 = unlockedContext;
+  if(ctx2.state !== "running"){
+    ctx2 = await resumeAudioContext();
   }
-  const ctx2 = await resumeAudioContext();
   playOffset = Math.min(cursorTime, Math.max(0, buffer.duration - 0.01));
   playStartedAt = ctx2.currentTime;
   sourceNode = ctx2.createBufferSource();
@@ -1277,11 +1428,13 @@ async function startPlayback(){
   sourceNode.onended = ()=>{
     stopPlayback();
     cursorTime = Math.min(buffer.duration, cursorTime);
+    statusEl.textContent = "再生が終了しました。";
     updateLabels();
   };
   try{
     sourceNode.start(0, playOffset);
     tickPlayback();
+    statusEl.textContent = "Web Audioで再生中（マナーモード対応）";
   }catch(err){
     console.warn("Web Audio playback failed, using audio element fallback.", err);
     stopPlayback();
@@ -1316,6 +1469,7 @@ async function startHtmlAudioPlayback(){
     htmlPlaybackActive = false;
     cursorTime = Math.min(buffer.duration, htmlPreviewAudio.currentTime || buffer.duration);
     stopPlayback();
+    statusEl.textContent = "再生が終了しました。";
     updateLabels();
   };
   try{
@@ -1474,6 +1628,7 @@ function downloadBlob(blob, extension){
 }
 
 fileInput.addEventListener("change", ()=>{
+  unlockAudioOutput();
   const file = fileInput.files && fileInput.files[0];
   if(file) loadFile(file);
 });
