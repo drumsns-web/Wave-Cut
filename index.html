@@ -725,18 +725,16 @@ function decodeWithContext(ctx2, arrayBuffer){
 }
 
 async function decodeAudioDataRobust(arrayBuffer){
-  await resumeAudioContext();
   const errors = [];
   try{
-    return await withTimeout(decodeWithContext(ensureAudioContext(), arrayBuffer), 20000, "audio decode timeout");
+    const ctx2 = ensureAudioContext();
+    return await withTimeout(decodeWithContext(ctx2, arrayBuffer), 20000, "audio decode timeout");
   }catch(err){
     errors.push(err);
   }
   try{
-    const freshContext = new (window.AudioContext || window.webkitAudioContext)();
-    if(freshContext.state === "suspended"){
-      try{ await freshContext.resume(); }catch(e){}
-    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const freshContext = new AudioContextClass();
     const decoded = await withTimeout(decodeWithContext(freshContext, arrayBuffer), 20000, "fresh audio decode timeout");
     try{ await freshContext.close(); }catch(e){}
     return decoded;
@@ -945,10 +943,19 @@ function extractAudioViaUserTap(file, mediaInfo){
 }
 
 async function decodeFileToAudioBuffer(file){
+  let arrayBuffer;
   try{
-    const arrayBuffer = await withTimeout(readFileWithProgress(file), 45000, "file read timeout");
-    showLoadProgress("音声データを変換中", null, "通常は数秒・最大約40秒");
-    startLoadElapsedTimer("音声データを変換中");
+    showLoadProgress("ファイルを読み込み中", null, "通常は数秒");
+    arrayBuffer = await withTimeout(file.arrayBuffer(), 30000, "file arrayBuffer timeout");
+  }catch(arrayBufferError){
+    console.warn("file.arrayBuffer failed. Trying FileReader.", arrayBufferError);
+    showLoadProgress("別のファイル読込方式を使用中", 0, "0%");
+    arrayBuffer = await withTimeout(readFileWithProgress(file), 45000, "file read timeout");
+  }
+
+  try{
+    showLoadProgress("音声を解析して波形を作成中", null, "通常は数秒・最大約40秒");
+    startLoadElapsedTimer("音声を解析して波形を作成中");
     return await decodeAudioDataRobust(arrayBuffer);
   }catch(directError){
     console.warn("Direct decode failed. Trying media capture.", directError);
@@ -1628,7 +1635,6 @@ function downloadBlob(blob, extension){
 }
 
 fileInput.addEventListener("change", ()=>{
-  unlockAudioOutput();
   const file = fileInput.files && fileInput.files[0];
   if(file) loadFile(file);
 });
